@@ -16,25 +16,19 @@ EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 
 
 class SearchProductsArgs(BaseModel):
-    query: str = Field(
-        min_length=1, max_length=100, description="Words to search for, e.g. 'leather wallet'."
-    )
-    max_results: int = Field(default=3, ge=1, le=5, description="How many products to return.")
+    query: str = Field(min_length=1, max_length=100, description="Search words, e.g. 'wallet'.")
+    max_results: int = Field(default=3, ge=1, le=5)
 
 
 class GetOrderStatusArgs(BaseModel):
-    order_id: str = Field(min_length=1, max_length=20, description="The order ID, e.g. ORD-1001.")
-    email: str = Field(
-        min_length=3, max_length=254, description="The email address used to place the order."
-    )
+    order_id: str = Field(min_length=1, max_length=20, description="e.g. ORD-1001")
+    email: str = Field(min_length=3, max_length=254, description="Email used for the order.")
 
 
 class CaptureLeadArgs(BaseModel):
-    name: str = Field(min_length=1, max_length=100, description="The customer's name.")
-    email: str = Field(max_length=254, description="The customer's email address.")
-    message: str | None = Field(
-        default=None, max_length=1000, description="What the customer needs help with."
-    )
+    name: str = Field(min_length=1, max_length=100)
+    email: str = Field(max_length=254)
+    message: str | None = Field(default=None, max_length=1000, description="What they need.")
 
     @field_validator("email")
     @classmethod
@@ -59,30 +53,22 @@ TOOLS: dict[str, ToolSpec] = {
     for spec in (
         ToolSpec(
             name="search_products",
-            description=(
-                "Search the shop's product catalog. Use it for any question about products, "
-                "prices or stock. Returns name, category, price, description and in_stock."
-            ),
+            description="Search the catalog for products, prices and stock.",
             args_model=SearchProductsArgs,
             risk="low",
             read_only=True,
         ),
         ToolSpec(
             name="get_order_status",
-            description=(
-                "Look up an order's status, items, dates, tracking number and total. "
-                "Requires BOTH the order ID and the email address used for the order."
-            ),
+            # The schema marks both fields required; policy 4.1 says the same in words.
+            description="Get an order's status, items, dates, tracking and total.",
             args_model=GetOrderStatusArgs,
             risk="low",
             read_only=True,
         ),
         ToolSpec(
             name="capture_lead",
-            description=(
-                "Save a customer's name, email and message so a human can follow up. "
-                "Only call it after the customer has agreed to share their contact details."
-            ),
+            description="Save contact details for human follow-up. Only after consent.",
             args_model=CaptureLeadArgs,
             risk="medium",
             read_only=False,
@@ -91,10 +77,14 @@ TOOLS: dict[str, ToolSpec] = {
 }
 
 
+# Keys left out of the schema the model sees, to save prompt tokens. Titles add nothing;
+# length limits are still enforced by the Pydantic models when the call is dispatched.
+_MODEL_HIDDEN_KEYS = frozenset({"title", "minLength", "maxLength"})
+
+
 def _strip_titles(node: Any) -> Any:
-    """Drop Pydantic's auto-generated "title" keys; they cost prompt tokens and add nothing."""
     if isinstance(node, dict):
-        return {k: _strip_titles(v) for k, v in node.items() if k != "title"}
+        return {k: _strip_titles(v) for k, v in node.items() if k not in _MODEL_HIDDEN_KEYS}
     if isinstance(node, list):
         return [_strip_titles(v) for v in node]
     return node

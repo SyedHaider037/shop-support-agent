@@ -49,3 +49,46 @@ def test_empty_policy_fails_clearly(tmp_path: Path) -> None:
 
 def test_build_system_prompt_appends_policy() -> None:
     assert build_system_prompt("1. Be nice.").endswith("1. Be nice.")
+
+
+# --- Phase 4C wording fixes --------------------------------------------------------------
+
+PENDING_SENTENCE = (
+    "Your refund request is not approved yet; a human from our support team will review it."
+)
+
+
+def test_pending_approval_has_one_exact_sentence_to_say() -> None:
+    assert f'say: "{PENDING_SENTENCE}"' in system_prompt()
+
+
+def test_refused_refunds_must_not_be_described_as_requests() -> None:
+    assert "No request exists then: never say one was made or will be reviewed." in system_prompt()
+
+
+def test_bulk_custom_orders_and_complaints_are_in_scope() -> None:
+    assert "bulk or custom orders, complaints, and contacting the support team" in system_prompt()
+
+
+def test_every_allowed_policy_phrase_still_appears_in_the_policy() -> None:
+    # The leak check exempts these phrases; one that drifted out of policy.md is dead weight,
+    # and new policy sentences without an entry would be replaced as leaks.
+    from app.guardrails.output import _words
+    from app.guardrails.rules import guardrail_rules
+
+    policy_words = " ".join(_words(load_policy()))
+    for phrase in guardrail_rules().allowed_policy_phrases:
+        assert " ".join(_words(phrase)) in policy_words, phrase
+
+
+def test_the_scripted_sentences_pass_the_output_checks() -> None:
+    from app.guardrails.output import check_output
+    from app.guardrails.rules import guardrail_rules
+
+    rules = guardrail_rules()
+    scope = (
+        "I can help with products, orders, delivery, returns and refunds, bulk or custom "
+        "orders, complaints, and contacting the support team."
+    )
+    for text in (PENDING_SENTENCE, scope):
+        assert check_output(text, [], rules, write_succeeded=True).events == [], text

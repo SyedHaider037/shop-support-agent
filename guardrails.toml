@@ -48,8 +48,8 @@ allowed_policy_phrases = [
     "Would you like me to save your name and email so our team can contact you?",
     "the order ID and the email address used for the order",
     "can only help with shop questions",
-    "products, orders, delivery, returns and refunds, and contacting the support team",
-    "a human from the support team will follow up, and that it is not approved yet",
+    "products, orders, delivery, returns and refunds, bulk or custom orders, complaints, and contacting the support team",
+    "Your refund request is not approved yet; a human from our support team will review it.",
     "Only orders delivered in the last 30 days, with no earlier request, are eligible.",
 ]
 

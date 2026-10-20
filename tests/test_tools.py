@@ -49,6 +49,7 @@ def test_every_tool_has_a_risk_level_and_a_handler() -> None:
         "search_products": "low",
         "get_order_status": "low",
         "capture_lead": "medium",
+        "request_refund": "high",
     }
     assert set(dispatcher.HANDLERS) == set(TOOLS)
 

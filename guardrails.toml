@@ -48,4 +48,6 @@ allowed_policy_phrases = [
     "the order ID and the email address used for the order",
     "can only help with shop questions",
     "products, orders, delivery, returns and refunds, and contacting the support team",
+    "a human from the support team will follow up, and that it is not approved yet",
+    "Only orders delivered in the last 30 days, with no earlier request, are eligible.",
 ]

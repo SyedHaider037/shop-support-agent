@@ -25,6 +25,13 @@ class GetOrderStatusArgs(BaseModel):
     email: str = Field(min_length=3, max_length=254, description="Email used for the order.")
 
 
+class RequestRefundArgs(BaseModel):
+    order_id: str = Field(min_length=1, max_length=20, description="e.g. ORD-1001")
+    email: str = Field(min_length=3, max_length=254, description="Email used for the order.")
+    # No min_length: a blank reason must reach the tool so it can answer reason_required.
+    reason: str = Field(max_length=500, description="Why the customer wants a refund.")
+
+
 class CaptureLeadArgs(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(max_length=254)
@@ -71,6 +78,14 @@ TOOLS: dict[str, ToolSpec] = {
             description="Save contact details for human follow-up. Only after consent.",
             args_model=CaptureLeadArgs,
             risk="medium",
+            read_only=False,
+        ),
+        ToolSpec(
+            name="request_refund",
+            # High risk: it never moves money, it only queues a request for a human.
+            description="Send a refund request to a human for review. It does not approve.",
+            args_model=RequestRefundArgs,
+            risk="high",
             read_only=False,
         ),
     )

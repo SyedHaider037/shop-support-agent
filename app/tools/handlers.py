@@ -2,8 +2,15 @@
 
 from typing import Any
 
+from app.store.models import Order
 from app.store.store import Store
-from app.tools.definitions import CaptureLeadArgs, GetOrderStatusArgs, SearchProductsArgs
+from app.tools.definitions import (
+    CaptureLeadArgs,
+    GetOrderStatusArgs,
+    RequestRefundArgs,
+    SearchProductsArgs,
+)
+from app.tools.refund_rules import ineligibility
 
 
 class ToolError(Exception):
@@ -19,15 +26,20 @@ def search_products(args: SearchProductsArgs, store: Store) -> dict[str, Any]:
     return {"products": [p.model_dump(mode="json") for p in products]}
 
 
-def get_order_status(args: GetOrderStatusArgs, store: Store) -> dict[str, Any]:
-    """Only the order's owner may see it.
+def _verified_order(order_id: str, email: str, store: Store) -> Order:
+    """The order, if the email matches it.
 
-    An unknown order and a wrong email raise the same error, so the tool cannot be
+    An unknown order and a wrong email raise the same error, so no tool can be
     used to discover which order IDs exist.
     """
-    order = store.get_order(args.order_id)
-    if order is None or order.email.lower() != args.email.strip().lower():
+    order = store.get_order(order_id)
+    if order is None or order.email.lower() != email.strip().lower():
         raise ToolError("no_matching_order")
+    return order
+
+
+def get_order_status(args: GetOrderStatusArgs, store: Store) -> dict[str, Any]:
+    order = _verified_order(args.order_id, args.email, store)
     return {
         "order_id": order.order_id,
         "status": order.status,
@@ -38,6 +50,19 @@ def get_order_status(args: GetOrderStatusArgs, store: Store) -> dict[str, Any]:
         "tracking_number": order.tracking_number,
         "total": order.total,
     }
+
+
+def request_refund(args: RequestRefundArgs, store: Store) -> dict[str, Any]:
+    """Queue a refund for human approval. Nothing here can approve it or move money.
+
+    The amount is not returned, so the model has nothing to promise.
+    """
+    order = _verified_order(args.order_id, args.email, store)
+    blocked = ineligibility(order, args.reason, store)
+    if blocked:
+        raise ToolError(blocked)
+    approval = store.create_refund_approval(order.order_id, args.email, args.reason.strip())
+    return {"status": "pending_approval", "ref": approval.id}
 
 
 def capture_lead(args: CaptureLeadArgs, store: Store) -> dict[str, Any]:

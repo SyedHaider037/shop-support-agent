@@ -10,6 +10,9 @@ from typing import Literal
 from pydantic import BaseModel
 
 OrderStatus = Literal["processing", "shipped", "delivered", "cancelled"]
+ApprovalStatus = Literal["pending", "approved", "rejected"]
+Actor = Literal["agent", "admin"]
+AuditAction = Literal["refund_requested", "refund_approved", "refund_rejected"]
 
 
 class Product(BaseModel):
@@ -39,6 +42,8 @@ class Order(BaseModel):
     delivered_date: date | None
     tracking_number: str | None
     total: float
+    # Only an admin approval sets this; a pending request never changes the order.
+    refund_status: Literal["refunded"] | None = None
 
 
 class SampleOrder(BaseModel):
@@ -80,3 +85,24 @@ class Lead(BaseModel):
     email: str
     message: str | None
     created_at: datetime
+
+
+class PendingApproval(BaseModel):
+    """A refund the agent asked for. Only a human can move it out of "pending"."""
+
+    id: str
+    order_id: str
+    amount: float
+    reason: str
+    status: ApprovalStatus
+    created_at: datetime
+    decided_at: datetime | None = None
+
+
+class AuditEntry(BaseModel):
+    at: datetime
+    action: AuditAction
+    approval_id: str
+    actor: Actor
+    # Always masked: the audit log is for review and must not collect contact details.
+    email: str

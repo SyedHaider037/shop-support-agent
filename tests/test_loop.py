@@ -60,6 +60,7 @@ def test_request_carries_system_prompt_tools_and_settings() -> None:
         "search_products",
         "get_order_status",
         "capture_lead",
+        "request_refund",
     }
     assert request["model"] == SETTINGS.model
     assert request["temperature"] == 0.2

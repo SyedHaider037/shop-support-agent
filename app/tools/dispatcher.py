@@ -25,6 +25,7 @@ HANDLERS: dict[str, Handler] = {
     "search_products": handlers.search_products,
     "get_order_status": handlers.get_order_status,
     "capture_lead": handlers.capture_lead,
+    "request_refund": handlers.request_refund,
 }
 
 

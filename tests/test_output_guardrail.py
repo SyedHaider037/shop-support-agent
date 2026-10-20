@@ -57,6 +57,8 @@ def test_phrases_the_policy_tells_the_agent_to_say_are_allowed() -> None:
         "Sorry, I could not find an order matching that order ID and email. Please check both.",
         "Would you like me to save your name and email so our team can contact you?",
         "I can only help with shop questions, such as products or orders.",
+        "I've sent it for review. Please note that it is not approved yet.",
+        "Sorry, only orders delivered in the last 30 days are eligible for a refund.",
     ]
 
     for text in texts:

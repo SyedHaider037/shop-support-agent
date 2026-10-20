@@ -102,6 +102,19 @@ function renderReply(text) {
   return fragment;
 }
 
+/** A refund request went to a human: the only state the agent can reach for a refund. */
+function pendingApproval(steps) {
+  return (steps || []).some(
+    (step) =>
+      step &&
+      step.tool === "request_refund" &&
+      step.result &&
+      step.result.ok === true &&
+      step.result.data &&
+      step.result.data.status === "pending_approval",
+  );
+}
+
 /* ---------- page ----------------------------------------------------------------- */
 
 function startPage() {
@@ -197,18 +210,6 @@ function startPage() {
   }
 
   /* --- replies and their traces --- */
-
-  function pendingApproval(steps) {
-    return (steps || []).some(
-      (step) =>
-        step &&
-        step.tool === "request_refund" &&
-        step.result &&
-        step.result.ok === true &&
-        step.result.data &&
-        step.result.data.status === "pending_approval",
-    );
-  }
 
   function addAssistantReply(data) {
     const index = state.replies.length;
@@ -387,16 +388,144 @@ function startPage() {
 
 /* ---------- trace panel ------------------------------------------------------------ */
 
-function renderTrace(container, reply) {
-  const trace = reply.trace || {};
+const RISK_HELP = "Risk: low reads data, medium saves contact details, high asks for a refund.";
+
+function section(container, title, explanation) {
+  const wrap = el("section", "trace__section");
+  wrap.appendChild(el("h3", null, title));
+  wrap.appendChild(el("p", "hint", explanation));
+  container.appendChild(wrap);
+  return wrap;
+}
+
+function factList(rows) {
   const facts = el("dl", "facts");
-  const add = (label, value) => {
+  for (const [label, value] of rows) {
     facts.appendChild(el("dt", null, label));
     facts.appendChild(el("dd", null, value));
-  };
-  add("Latency", `${trace.total_latency_ms ?? "?"} ms`);
-  add("Tokens", String((trace.tokens && trace.tokens.total) ?? "?"));
-  container.appendChild(facts);
+  }
+  return facts;
+}
+
+function plainList(items) {
+  const list = el("ul", "plain-list");
+  for (const item of items) list.appendChild(el("li", null, item));
+  return list;
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined) return "none";
+  if (typeof value === "object") return JSON.stringify(value); // shown as text, never HTML
+  return String(value);
+}
+
+function formatCost(cost) {
+  if (typeof cost !== "number") return "not available for this model";
+  return `$${cost.toFixed(6)} (estimated)`;
+}
+
+function renderToolCall(call) {
+  const box = el("div", "tool");
+  const head = el("div", "tool__head");
+  head.appendChild(el("strong", null, call.name));
+  const risk = ["low", "medium", "high"].includes(call.risk) ? call.risk : "unknown";
+  head.appendChild(el("span", `badge badge--${risk}`, `${risk} risk`));
+  const ok = call.result === "ok";
+  head.appendChild(el("span", `badge ${ok ? "badge--ok" : "badge--error"}`, ok ? "ok" : call.result));
+  head.appendChild(el("span", "hint", `${call.latency_ms ?? "?"} ms`));
+  box.appendChild(head);
+
+  const args = el("ul", "tool__args");
+  const values = call.arguments;
+  if (values && typeof values === "object" && !Array.isArray(values)) {
+    for (const [key, value] of Object.entries(values)) {
+      args.appendChild(el("li", null, `${key}: ${formatValue(value)}`));
+    }
+  } else {
+    args.appendChild(el("li", null, `arguments: ${formatValue(values)}`));
+  }
+  box.appendChild(args);
+  return box;
+}
+
+/** Fill `container` with the trace of one reply. Every value is set as text. */
+function renderTrace(container, reply) {
+  const trace = reply.trace || {};
+  const steps = Array.isArray(trace.steps) ? trace.steps : [];
+  const tokens = trace.tokens || {};
+
+  if (pendingApproval(reply.steps)) {
+    container.appendChild(el("p", "badge badge--pending", "Pending human approval: not approved yet"));
+  }
+
+  section(
+    container,
+    "Summary",
+    "Latency is the whole request; tokens are what the model read and wrote; cost uses list prices.",
+  ).appendChild(
+    factList([
+      ["Model", formatValue(trace.model)],
+      ["Reasoning effort", formatValue(trace.reasoning_effort)],
+      ["Total latency", `${trace.total_latency_ms ?? "?"} ms`],
+      ["Tokens", `${tokens.total ?? 0} (${tokens.prompt ?? 0} in, ${tokens.completion ?? 0} out)`],
+      ["Cost", formatCost(trace.estimated_cost_usd)],
+      ["Model steps", String(steps.length)],
+    ]),
+  );
+
+  const stepsBox = section(
+    container,
+    "Steps",
+    `Each step is one model call; its latency includes any retries. ${RISK_HELP}`,
+  );
+  if (!steps.length) {
+    const blocked = (trace.guardrail_events || []).some((e) => e.layer === "input");
+    stepsBox.appendChild(
+      el("p", "trace__empty", blocked ? "No model call: the input guardrail answered." : "No model call was made."),
+    );
+  }
+  for (const step of steps) {
+    const box = el("div", "step");
+    box.appendChild(
+      el(
+        "p",
+        "step__title",
+        `Step ${step.step}: ${step.latency_ms} ms, ${step.prompt_tokens} in / ${step.completion_tokens} out tokens`,
+      ),
+    );
+    const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
+    if (!calls.length) box.appendChild(el("p", "hint", "No tool call: the model answered."));
+    for (const call of calls) box.appendChild(renderToolCall(call));
+    stepsBox.appendChild(box);
+  }
+
+  const events = Array.isArray(trace.guardrail_events) ? trace.guardrail_events : [];
+  section(
+    container,
+    "Guardrails",
+    "Input checks run before the model; output checks run on the final reply.",
+  ).appendChild(
+    events.length
+      ? plainList(events.map((e) => `${e.layer} · ${e.rule} · ${e.action}`))
+      : el("p", "trace__empty", "None fired."),
+  );
+
+  const retryLines = (Array.isArray(trace.retries) ? trace.retries : []).map(
+    (r) => `${r.reason}, waited ${r.wait_s} s`,
+  );
+  if (trace.forced_retry_reason) retryLines.push(`forced a tool call: ${trace.forced_retry_reason}`);
+  if (trace.recovered_error) retryLines.push(`recovered from: ${trace.recovered_error}`);
+  section(
+    container,
+    "Retries and waits",
+    "Calls repeated after a rate limit, a server error or a malformed tool call.",
+  ).appendChild(retryLines.length ? plainList(retryLines) : el("p", "trace__empty", "None."));
+
+  section(
+    container,
+    "Error code",
+    "Set when the agent stopped early, e.g. a step limit or a refused input.",
+  ).appendChild(el("p", trace.error ? "badge badge--error" : "trace__empty", trace.error || "None."));
 }
 
 /* ---------- start ------------------------------------------------------------------ */
@@ -407,4 +536,4 @@ if (typeof document !== "undefined") {
 }
 
 // Lets `node --test` check the pure formatter without a browser; ignored by the page.
-if (typeof module !== "undefined") module.exports = { parseInline, parseReply };
+if (typeof module !== "undefined") module.exports = { parseInline, parseReply, pendingApproval };

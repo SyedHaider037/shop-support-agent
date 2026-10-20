@@ -124,6 +124,9 @@ class AgentResult:
     first_reply: str | None = None
     # An error the loop recovered from, e.g. tool_call_failed after a forced retry.
     recovered_error: str | None = None
+    # The model's final text before the output guardrails changed it, so evals can tell a
+    # real leak from a false alarm. It may hold leaked text: never in the API or the logs.
+    reply_before_guardrails: str | None = None
 
 
 def sounds_like_fake_check(text: str) -> bool:
@@ -253,6 +256,7 @@ def run_agent(
         if outcome.error == "tool_call_failed" and force_tool and result.first_reply:
             # The forced call failed, but the model's own reply is still there: send it
             # (if the output checks allow it) rather than a generic handoff.
+            result.reply_before_guardrails = result.first_reply
             recovered = check_output(
                 result.first_reply, user_texts, rules, write_succeeded=write_succeeded(result.steps)
             )
@@ -294,6 +298,7 @@ def run_agent(
             if not content:
                 return _stopped(result, "token_budget" if over_budget else "empty_reply")
             # A finished answer is kept even if it crossed the budget: the tokens are spent.
+            result.reply_before_guardrails = content
             checked_reply = check_output(
                 content, user_texts, rules, write_succeeded=write_succeeded(result.steps)
             )

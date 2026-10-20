@@ -82,6 +82,8 @@ class Conversation:
     guardrail_events: list[dict[str, str]]
     agent_retries: list[dict[str, Any]]  # the agent loop's own 429/5xx/tool_use_failed retries
     forced_retries: list[dict[str, Any]]  # forced tool calls: turn, reason, first reply (masked)
+    # Per agent reply: its text before the output guardrails (masked), or None if unchanged.
+    replies_before_guardrails: list[str | None]
 
 
 def converse(
@@ -105,6 +107,7 @@ def converse(
     events: list[dict[str, str]] = []
     retries: list[dict[str, Any]] = []
     forced: list[dict[str, Any]] = []
+    before: list[str | None] = []
     for turn in range(1, max_turns + 1):
         text = user.next_message(history)
         if text is None:
@@ -138,8 +141,10 @@ def converse(
             if event.layer == "input":
                 outcome.input_rules_fired.append(event.rule)
         outcome.replies.append(result.reply)
+        raw = result.reply_before_guardrails
+        before.append(mask_emails(raw) if raw is not None and raw != result.reply else None)
         history.append({"role": "assistant", "content": result.reply})
-    return Conversation(outcome, history, agent_errors, events, retries, forced)
+    return Conversation(outcome, history, agent_errors, events, retries, forced, before)
 
 
 def apply_setup(task: Task, store: Store) -> None:
@@ -305,6 +310,7 @@ def _row(
         "first_failure_layer": first_failure_layer(failures, convo.outcome),
         "agent_errors": convo.agent_errors,
         "forced_retries": convo.forced_retries,
+        "replies_before_guardrails": convo.replies_before_guardrails,
         # Sample emails are fake, but masked anyway so results never collect contact details.
         "final_reply": mask_emails(replies[-1]) if replies else None,
         "transcript": mask_emails(convo.transcript),

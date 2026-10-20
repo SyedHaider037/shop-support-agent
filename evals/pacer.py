@@ -11,7 +11,7 @@ One Pacer per model: the limits are per model.
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
@@ -23,12 +23,27 @@ ESTIMATE_MARGIN = 400
 
 
 @dataclass
+class PacerCall:
+    """What the pacer saw and did for one call, so a long wait can be explained later."""
+
+    waited_s: float
+    estimate: int  # tokens the pacer expected this call to use
+    window_tokens: int  # counted tokens already in the 60 s window before the call
+    window_requests: int
+    prompt: int = 0
+    completion: int = 0
+    cached: int = 0
+    error: str | None = None
+
+
+@dataclass
 class PacerStats:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
     requests: int = 0
     waited_s: float = 0.0
+    calls: list[PacerCall] = field(default_factory=list)
 
 
 def _cached_tokens(usage: Any) -> int:
@@ -97,21 +112,33 @@ class Pacer:
         return waited
 
     def _create(self, **kwargs: Any) -> Any:
-        self.wait_for_room()
+        self._prune(self._clock())
+        call = PacerCall(
+            waited_s=0.0,
+            estimate=self.estimate(),
+            window_tokens=sum(tokens for _, tokens in self._tokens),
+            window_requests=len(self._requests),
+        )
+        call.waited_s = round(self.wait_for_room(), 3)
+        self.stats.calls.append(call)
         self._requests.append(self._clock())
         self.stats.requests += 1
-        response = self._client.chat.completions.create(**kwargs)  # errors propagate
+        try:
+            response = self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            call.error = type(exc).__name__
+            raise
         usage = getattr(response, "usage", None)
         if usage is not None:
-            prompt = usage.prompt_tokens or 0
-            cached = _cached_tokens(usage)
-            completion = usage.completion_tokens or 0
-            self._last_prompt = prompt
+            call.prompt = usage.prompt_tokens or 0
+            call.cached = _cached_tokens(usage)
+            call.completion = usage.completion_tokens or 0
+            self._last_prompt = call.prompt
             # Cached prompt tokens do not count against Groq's limits.
-            self._tokens.append((self._clock(), prompt - cached + completion))
-            self.stats.prompt_tokens += prompt
-            self.stats.completion_tokens += completion
-            self.stats.cached_tokens += cached
+            self._tokens.append((self._clock(), call.prompt - call.cached + call.completion))
+            self.stats.prompt_tokens += call.prompt
+            self.stats.completion_tokens += call.completion
+            self.stats.cached_tokens += call.cached
         return response
 
     def take_stats(self) -> PacerStats:

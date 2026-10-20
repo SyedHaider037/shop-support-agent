@@ -119,3 +119,56 @@ def test_total_wait_is_kept_across_stat_resets() -> None:
     h.call()
 
     assert h.pacer.total_waited_s == pytest.approx(60.05)
+
+
+def test_each_call_records_what_the_pacer_saw() -> None:
+    h = Harness(response(1_000, completion=100, cached=600), response(1_200, completion=50))
+    h.call()
+    h.clock.advance(1)
+
+    h.call()
+
+    first, second = h.pacer.stats.calls
+    assert (first.estimate, first.window_tokens, first.window_requests, first.waited_s) == (
+        2_000,
+        0,
+        0,
+        0.0,
+    )
+    assert (first.prompt, first.cached, first.completion) == (1_000, 600, 100)
+    assert (second.estimate, second.window_tokens, second.window_requests) == (1_400, 500, 1)
+
+
+def test_a_failed_call_is_recorded_with_its_error() -> None:
+    h = Harness(rate_limit_error("5"))
+
+    with pytest.raises(Exception, match="rate limited"):
+        h.call()
+
+    [call] = h.pacer.stats.calls
+    assert call.error == "RateLimitError"
+    assert call.prompt == 0
+
+
+def test_the_recorded_smoke_test_calls_do_not_make_the_pacer_wait() -> None:
+    # Investigation of the 27.6 s wait in the Phase 4A smoke test: the real per-call
+    # numbers (cache hits come in 1,024-token blocks) never fill the 6,500-token window,
+    # so the estimate counting cached tokens does not explain it on its own.
+    calls = [
+        (0.0, 1230, 45, 1024),
+        (0.7, 1326, 46, 1024),
+        (2.0, 1240, 50, 1024),
+        (5.0, 1300, 50, 1024),
+        (8.0, 1391, 52, 0),
+        (10.0, 1246, 73, 1024),
+        (11.2, 1318, 39, 1024),
+        (12.1, 1260, 68, 0),
+    ]
+    h = Harness(*[response(p, completion=c, cached=k) for _, p, c, k in calls])
+
+    for start, *_ in calls:
+        h.clock.now = 1_000.0 + start
+        h.call()
+
+    assert h.slept == []
+    assert max(c.window_tokens + c.estimate for c in h.pacer.stats.calls) < 6_500

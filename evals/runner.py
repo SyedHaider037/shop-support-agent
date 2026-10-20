@@ -80,6 +80,7 @@ class Conversation:
     transcript: list[dict[str, str]]
     agent_errors: list[str]
     guardrail_events: list[dict[str, str]]
+    agent_retries: list[dict[str, Any]]  # the agent loop's own 429/5xx/tool_use_failed retries
 
 
 def converse(
@@ -101,13 +102,15 @@ def converse(
     )
     agent_errors: list[str] = []
     events: list[dict[str, str]] = []
-    for _ in range(max_turns):
+    retries: list[dict[str, Any]] = []
+    for turn in range(1, max_turns + 1):
         text = user.next_message(history)
         if text is None:
             break
         history.append({"role": "user", "content": text})
         outcome.user_texts.append(text)
         result = run_agent(history, store, client, settings, clock=clock, sleep=sleep)
+        retries += [{"turn": turn, **asdict(retry)} for retry in result.retries]
         if result.error in INFRA_ERRORS:
             raise InfraError(result.error or "api_error", result.retry_after_s)
         if result.error:
@@ -125,7 +128,7 @@ def converse(
                 outcome.input_rules_fired.append(event.rule)
         outcome.replies.append(result.reply)
         history.append({"role": "assistant", "content": result.reply})
-    return Conversation(outcome, history, agent_errors, events)
+    return Conversation(outcome, history, agent_errors, events, retries)
 
 
 def apply_setup(task: Task, store: Store) -> None:
@@ -147,6 +150,56 @@ def _cost(model: str | None, stats: PacerStats) -> float:
     return estimated_cost_usd(model, stats.prompt_tokens, stats.completion_tokens) or 0.0
 
 
+@dataclass
+class Attempt:
+    """One try at a trial. Failed tries still spend tokens, so they are kept."""
+
+    attempt: int
+    status: str  # "ok" or the infra error code
+    retry_after_s: float | None
+    wait_before_s: float  # infra wait slept before this try
+    agent: PacerStats
+    sim: PacerStats
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "attempt": self.attempt,
+            "status": self.status,
+            "reason": None if self.status == "ok" else self.status,
+            "retry_after_s": self.retry_after_s,
+            "wait_before_s": self.wait_before_s,
+            "tokens": _tokens(self.agent),
+            "sim_tokens": _tokens(self.sim),
+            "pacer_waited_s": round(self.agent.waited_s + self.sim.waited_s, 3),
+        }
+
+
+def _attempt_fields(attempts: list[Attempt], config: RunConfig) -> dict[str, Any]:
+    """Row fields covering every try, so hidden retries and their cost are visible."""
+
+    def total(stats: list[PacerStats]) -> dict[str, int]:
+        return {
+            key: sum(_tokens(s)[key] for s in stats) for key in ("prompt", "completion", "cached")
+        }
+
+    cost = sum(
+        _cost(config.settings.model, a.agent) + _cost(config.sim_model, a.sim) for a in attempts
+    )
+    return {
+        "attempts": [a.summary() for a in attempts],
+        "infra_retry_waits_s": [a.wait_before_s for a in attempts if a.attempt > 1],
+        "tokens_all_attempts": {
+            "agent": total([a.agent for a in attempts]),
+            "sim": total([a.sim for a in attempts]),
+        },
+        "estimated_cost_usd": round(cost, 8),  # every attempt, not just the graded one
+    }
+
+
+def _take(agent: Pacer, sim: Pacer | None) -> tuple[PacerStats, PacerStats]:
+    return agent.take_stats(), sim.take_stats() if sim else PacerStats()
+
+
 def run_task(
     task: Task,
     trial: int,
@@ -160,11 +213,14 @@ def run_task(
     """One trial, with infra retries. Raises DailyLimitReached; never raises for infra errors."""
     settings = config.settings
     error: InfraError | None = None
-    for attempt in range(INFRA_RETRIES + 1):
-        if attempt:
+    attempts: list[Attempt] = []
+    for attempt in range(1, INFRA_RETRIES + 2):
+        wait = 0.0
+        if attempt > 1:
             # Wait as long as Groq asked (agent or simulator), and at least INFRA_WAIT_S.
             asked = error.retry_after_s if error and error.retry_after_s is not None else -1
-            sleep(max(asked + 1, INFRA_WAIT_S))
+            wait = max(asked + 1, INFRA_WAIT_S)
+            sleep(wait)
         agent.take_stats()
         if sim:
             sim.take_stats()
@@ -179,14 +235,17 @@ def run_task(
                 task, store, make_user(task), agent, settings, agent_clock, sleep, max_turns
             )
         except InfraError as exc:
+            attempts.append(Attempt(attempt, exc.code, exc.retry_after_s, wait, *_take(agent, sim)))
             if exc.retry_after_s is not None and exc.retry_after_s > DAILY_LIMIT_S:
                 raise DailyLimitReached(
                     f"{exc.code}: retry after {exc.retry_after_s:.0f}s"
                 ) from exc
             error = exc
             continue
-        return _row(task, trial, config, convo, agent, sim, started, clock)
-    return _infra_row(task, trial, config, error.code if error else "infra_error")
+        latency_ms = round((clock() - started) * 1000)
+        attempts.append(Attempt(attempt, "ok", None, wait, *_take(agent, sim)))
+        return _row(task, trial, config, convo, attempts, latency_ms)
+    return _infra_row(task, trial, config, error.code if error else "infra_error", attempts)
 
 
 def _base(task: Task, trial: int, config: RunConfig) -> dict[str, Any]:
@@ -205,8 +264,15 @@ def _base(task: Task, trial: int, config: RunConfig) -> dict[str, Any]:
     }
 
 
-def _infra_row(task: Task, trial: int, config: RunConfig, code: str) -> dict[str, Any]:
-    return {**_base(task, trial, config), "status": "infra_error", "error": code}
+def _infra_row(
+    task: Task, trial: int, config: RunConfig, code: str, attempts: list[Attempt]
+) -> dict[str, Any]:
+    return {
+        **_base(task, trial, config),
+        "status": "infra_error",
+        "error": code,
+        **_attempt_fields(attempts, config),
+    }
 
 
 def _row(
@@ -214,14 +280,11 @@ def _row(
     trial: int,
     config: RunConfig,
     convo: Conversation,
-    agent: Pacer,
-    sim: Pacer | None,
-    started: float,
-    clock: Callable[[], float],
+    attempts: list[Attempt],
+    latency_ms: int,
 ) -> dict[str, Any]:
     failures = grade(task, convo.outcome)
-    agent_stats = agent.take_stats()
-    sim_stats = sim.take_stats() if sim else PacerStats()
+    agent_stats, sim_stats = attempts[-1].agent, attempts[-1].sim
     replies = convo.outcome.replies
     return {
         **_base(task, trial, config),
@@ -236,13 +299,17 @@ def _row(
         "tool_calls": [asdict(c) for c in convo.outcome.tool_calls],
         "guardrail_events": convo.guardrail_events,
         "steps": convo.outcome.model_calls,
+        "agent_retries": convo.agent_retries,
+        # Tokens, latency and pacer data of the graded (last) try; every try is in attempts.
         "tokens": _tokens(agent_stats),
         "sim_tokens": _tokens(sim_stats),
-        "latency_ms": round((clock() - started) * 1000),
+        "latency_ms": latency_ms,
         "pacer_wait_ms": round((agent_stats.waited_s + sim_stats.waited_s) * 1000),
-        "estimated_cost_usd": round(
-            _cost(config.settings.model, agent_stats) + _cost(config.sim_model, sim_stats), 8
-        ),
+        "pacer": {
+            name: {"waited_s": round(stats.waited_s, 3), "calls": [asdict(c) for c in stats.calls]}
+            for name, stats in (("agent", agent_stats), ("sim", sim_stats))
+        },
+        **_attempt_fields(attempts, config),
     }
 
 

@@ -288,3 +288,45 @@ def test_fail_under_uses_the_regression_suite(tmp_path: Path) -> None:
 
 def test_daily_limit_exit_code_is_distinct() -> None:
     assert DAILY_LIMIT_EXIT not in (0, 1, 2)
+
+
+def test_every_attempt_is_recorded_with_its_tokens_and_wait() -> None:
+    h = Harness(
+        tool_calls(ORDER_CALL),  # attempt 1 spends tokens, then hits a 429 it cannot wait out
+        rate_limit_error("30"),
+        tool_calls(ORDER_CALL),
+        reply("It shipped."),
+    )
+
+    row = h.run(make_task())
+
+    assert row["status"] == "pass"
+    first, second = row["attempts"]
+    assert (first["attempt"], first["status"], first["retry_after_s"]) == (1, "model_busy", 30.0)
+    assert first["tokens"] == {"prompt": 10, "completion": 1, "cached": 0}
+    assert (second["status"], second["wait_before_s"], second["reason"]) == ("ok", 31, None)
+    assert row["infra_retry_waits_s"] == [31]
+    # Graded tokens are the last try's; the failed try still counts in the totals and the cost.
+    assert row["tokens"]["prompt"] == 20
+    assert row["tokens_all_attempts"]["agent"]["prompt"] == 30
+
+
+def test_agent_retries_and_pacer_calls_are_in_the_row() -> None:
+    h = Harness(rate_limit_error("2"), tool_calls(ORDER_CALL), reply("It shipped."))
+
+    row = h.run(make_task())
+
+    assert row["agent_retries"] == [{"turn": 1, "reason": "rate_limited", "wait_s": 2.0}]
+    agent_calls = row["pacer"]["agent"]["calls"]
+    assert [c["error"] for c in agent_calls] == ["RateLimitError", None, None]
+    assert set(agent_calls[0]) >= {"waited_s", "estimate", "window_tokens", "window_requests"}
+    assert row["pacer"]["sim"] == {"waited_s": 0.0, "calls": []}
+
+
+def test_infra_rows_keep_their_attempts() -> None:
+    h = Harness(rate_limit_error("30"), rate_limit_error("30"), rate_limit_error("30"))
+
+    row = h.run(make_task())
+
+    assert [a["status"] for a in row["attempts"]] == ["model_busy"] * 3
+    assert row["infra_retry_waits_s"] == [31, 31]

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "P-001",
+    "name": "Classic Bifold Wallet",
+    "category": "wallets",
+    "price": 39.99,
+    "description": "Slim brown leather bifold wallet with six card slots and a cash pocket.",
+    "in_stock": true
+  },
+  {
+    "id": "P-002",
+    "name": "Minimalist Card Holder",
+    "category": "wallets",
+    "price": 19.99,
+    "description": "Front-pocket card holder in black leather, fits up to five cards.",
+    "in_stock": true
+  },
+  {
+    "id": "P-003",
+    "name": "Trifold Travel Wallet",
+    "category": "wallets",
+    "price": 44.99,
+    "description": "Trifold wallet with an ID window, zip coin pouch and passport slot.",
+    "in_stock": false
+  },
+  {
+    "id": "P-004",
+    "name": "Reversible Dress Belt",
+    "category": "belts",
+    "price": 29.99,
+    "description": "Black and brown reversible leather belt with a brushed metal buckle.",
+    "in_stock": true
+  },
+  {
+    "id": "P-005",
+    "name": "Canvas Casual Belt",
+    "category": "belts",
+    "price": 24.99,
+    "description": "Woven canvas belt with leather tips, one size fits most.",
+    "in_stock": true
+  },
+  {
+    "id": "P-006",
+    "name": "Everyday Laptop Backpack",
+    "category": "bags",
+    "price": 89.99,
+    "description": "Water-resistant backpack with a padded 15-inch laptop sleeve.",
+    "in_stock": true
+  },
+  {
+    "id": "P-007",
+    "name": "Leather Messenger Bag",
+    "category": "bags",
+    "price": 129.99,
+    "description": "Tan leather messenger bag with an adjustable shoulder strap.",
+    "in_stock": false
+  },
+  {
+    "id": "P-008",
+    "name": "White Leather Sneakers",
+    "category": "shoes",
+    "price": 74.99,
+    "description": "Low-top white leather sneakers with a cushioned rubber sole.",
+    "in_stock": true
+  },
+  {
+    "id": "P-009",
+    "name": "Suede Chelsea Boots",
+    "category": "shoes",
+    "price": 119.99,
+    "description": "Brown suede Chelsea boots with elastic side panels.",
+    "in_stock": true
+  },
+  {
+    "id": "P-010",
+    "name": "Leather Key Organizer",
+    "category": "accessories",
+    "price": 14.99,
+    "description": "Compact leather key organizer that holds up to eight keys.",
+    "in_stock": true
+  }
+]

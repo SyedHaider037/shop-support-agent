@@ -1,0 +1,166 @@
+[
+  {
+    "order_id": "ORD-1001",
+    "customer_name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "product_id": "P-001",
+        "name": "Classic Bifold Wallet",
+        "quantity": 1,
+        "unit_price": 39.99
+      }
+    ],
+    "order_date": "2026-10-05",
+    "shipped_date": "2026-10-07",
+    "delivered_date": "2026-10-12",
+    "tracking_number": "TRK-000-1001",
+    "total": 39.99
+  },
+  {
+    "order_id": "ORD-1002",
+    "customer_name": "Sam Lee",
+    "email": "sam.lee@example.com",
+    "status": "shipped",
+    "items": [
+      {
+        "product_id": "P-006",
+        "name": "Everyday Laptop Backpack",
+        "quantity": 1,
+        "unit_price": 89.99
+      }
+    ],
+    "order_date": "2026-10-14",
+    "shipped_date": "2026-10-16",
+    "delivered_date": null,
+    "tracking_number": "TRK-000-1002",
+    "total": 89.99
+  },
+  {
+    "order_id": "ORD-1003",
+    "customer_name": "Alex Kim",
+    "email": "alex.kim@example.com",
+    "status": "processing",
+    "items": [
+      {
+        "product_id": "P-004",
+        "name": "Reversible Dress Belt",
+        "quantity": 1,
+        "unit_price": 29.99
+      },
+      {
+        "product_id": "P-010",
+        "name": "Leather Key Organizer",
+        "quantity": 2,
+        "unit_price": 14.99
+      }
+    ],
+    "order_date": "2026-10-19",
+    "shipped_date": null,
+    "delivered_date": null,
+    "tracking_number": null,
+    "total": 59.97
+  },
+  {
+    "order_id": "ORD-1004",
+    "customer_name": "Maria Garcia",
+    "email": "maria.garcia@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "product_id": "P-009",
+        "name": "Suede Chelsea Boots",
+        "quantity": 1,
+        "unit_price": 119.99
+      }
+    ],
+    "order_date": "2026-06-02",
+    "shipped_date": "2026-06-04",
+    "delivered_date": "2026-06-09",
+    "tracking_number": "TRK-000-1004",
+    "total": 119.99
+  },
+  {
+    "order_id": "ORD-1005",
+    "customer_name": "Chris Patel",
+    "email": "chris.patel@example.com",
+    "status": "cancelled",
+    "items": [
+      {
+        "product_id": "P-007",
+        "name": "Leather Messenger Bag",
+        "quantity": 1,
+        "unit_price": 129.99
+      }
+    ],
+    "order_date": "2026-09-20",
+    "shipped_date": null,
+    "delivered_date": null,
+    "tracking_number": null,
+    "total": 129.99
+  },
+  {
+    "order_id": "ORD-1006",
+    "customer_name": "Priya Shah",
+    "email": "priya.shah@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "product_id": "P-008",
+        "name": "White Leather Sneakers",
+        "quantity": 1,
+        "unit_price": 74.99
+      },
+      {
+        "product_id": "P-005",
+        "name": "Canvas Casual Belt",
+        "quantity": 1,
+        "unit_price": 24.99
+      }
+    ],
+    "order_date": "2026-09-22",
+    "shipped_date": "2026-09-24",
+    "delivered_date": "2026-09-28",
+    "tracking_number": "TRK-000-1006",
+    "total": 99.98
+  },
+  {
+    "order_id": "ORD-1007",
+    "customer_name": "Tom Becker",
+    "email": "tom.becker@example.com",
+    "status": "delivered",
+    "items": [
+      {
+        "product_id": "P-002",
+        "name": "Minimalist Card Holder",
+        "quantity": 3,
+        "unit_price": 19.99
+      }
+    ],
+    "order_date": "2026-08-10",
+    "shipped_date": "2026-08-11",
+    "delivered_date": "2026-08-15",
+    "tracking_number": "TRK-000-1007",
+    "total": 59.97
+  },
+  {
+    "order_id": "ORD-1008",
+    "customer_name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "status": "shipped",
+    "items": [
+      {
+        "product_id": "P-003",
+        "name": "Trifold Travel Wallet",
+        "quantity": 1,
+        "unit_price": 44.99
+      }
+    ],
+    "order_date": "2026-10-17",
+    "shipped_date": "2026-10-18",
+    "delivered_date": null,
+    "tracking_number": "TRK-000-1008",
+    "total": 44.99
+  }
+]

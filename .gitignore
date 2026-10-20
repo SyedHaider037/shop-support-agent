@@ -19,6 +19,10 @@ build/
 coverage/
 *.log
 
+# Eval results stay local; only the empty folder is tracked
+evals/results/*
+!evals/results/.gitkeep
+
 # Local tooling and hosting
 .claude/
 .vercel/

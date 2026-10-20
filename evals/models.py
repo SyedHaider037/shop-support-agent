@@ -5,9 +5,10 @@ load time instead of silently turning a check off.
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from app.store.store import Store
 
@@ -180,3 +181,16 @@ class Outcome:
     input_rules_fired: list[str] = field(default_factory=list)
     model_calls: int = 0
     approvals_before: int = 0  # approvals created by setup, not by the agent
+
+
+TASKS_PATH = Path(__file__).resolve().parent / "tasks.json"
+
+
+def load_tasks(path: Path = TASKS_PATH) -> list[Task]:
+    """Load and validate the task file; duplicate ids are an error, not a silent overwrite."""
+    tasks = TypeAdapter(list[Task]).validate_json(path.read_bytes())
+    ids = [t.id for t in tasks]
+    duplicates = sorted({i for i in ids if ids.count(i) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate task ids: {duplicates}")
+    return tasks

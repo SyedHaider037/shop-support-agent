@@ -18,7 +18,7 @@ from app.config import Settings, create_groq_client, load_settings
 from evals.customer_sim import SimulatedCustomer
 from evals.metrics import markdown_summary, suite_pass_rate, task_stats
 from evals.models import TASKS_PATH, Task, load_tasks
-from evals.pacer import Pacer
+from evals.pacer import Paced, Pacer, PacerChannel
 from evals.runner import (
     DAILY_LIMIT_EXIT,
     RunConfig,
@@ -86,7 +86,22 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def user_factory(sim: Pacer | None, sim_model: str) -> UserFactory:
+def make_pacers(
+    client: object, agent_model: str, sim_model: str, todo: list[tuple[Task, int]]
+) -> tuple[PacerChannel, PacerChannel | None]:
+    """One Pacer per model, because Groq's limits are per model. If the simulator runs on
+    the agent's model, both get a channel on the SAME pacer: one window, separate counts."""
+    pacers: dict[str, Pacer] = {}
+
+    def channel(model: str) -> PacerChannel:
+        return pacers.setdefault(model, Pacer(client)).channel()
+
+    agent = channel(agent_model)
+    sim = channel(sim_model) if any(task.simulated for task, _ in todo) else None
+    return agent, sim
+
+
+def user_factory(sim: Paced | None, sim_model: str) -> UserFactory:
     """Scripted tasks replay their turns; customer tasks talk to the simulator model."""
 
     def make(task: Task) -> UserSide:
@@ -129,8 +144,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     exit_code = 0
     if todo:
         client = create_groq_client(settings)  # raises a clear ConfigError without a key
-        agent = Pacer(client)
-        sim = Pacer(client) if any(t.simulated for t, _ in todo) else None
+        agent, sim = make_pacers(client, settings.model, args.sim_model, todo)
         config = RunConfig(settings=settings, commit=git_commit(), sim_model=args.sim_model)
         completed = run_all(todo, args.out, config, agent, user_factory(sim, args.sim_model), sim)
         if not completed:

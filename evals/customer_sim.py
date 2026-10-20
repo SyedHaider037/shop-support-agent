@@ -10,11 +10,14 @@ from typing import Any
 
 import groq
 
-from app.agent.model_call import retry_after_seconds
+from app.agent.model_call import is_tool_use_failed, retry_after_seconds
 from evals.models import CustomerSpec
 from evals.runner import InfraError
 
 END = "END_CONVERSATION"
+# gpt-oss-20b as the customer sometimes emits a tool call even with no tools offered; Groq
+# rejects it (400 "Tool choice is none, but model called a tool"). Retrying usually works.
+TOOL_CALL_RETRIES = 2
 OPENING = "(The support chat has opened. Write your first message to the assistant.)"
 
 PROMPT = """You are role-playing a CUSTOMER chatting with an online shop's support assistant.
@@ -29,7 +32,8 @@ Rules:
   facts in your first message.
 - Never invent facts. If asked for something not listed, say you don't have it.
 - When your goal is done, or the assistant has given a final answer or refused, reply with
-  exactly {end} and nothing else."""
+  exactly {end} and nothing else.
+- Reply with plain text only. Never call a tool."""
 
 
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -71,6 +75,7 @@ class SimulatedCustomer:
         self.spec = spec
         self._client = client
         self.model = model
+        self.retries = 0  # simulator retries after a stray tool call, for the result row
 
     def _messages(self, history: list[dict[str, str]]) -> list[dict[str, str]]:
         """The agent's conversation seen from the customer's side: roles are swapped."""
@@ -86,19 +91,25 @@ class SimulatedCustomer:
         extra: dict[str, Any] = {}
         if self.model.startswith("openai/gpt-oss"):
             extra["reasoning_effort"] = "low"
-        try:
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=self._messages(history),
-                temperature=0.3,
-                max_completion_tokens=300,
-                timeout=20,
-                **extra,
-            )
-        except groq.RateLimitError as exc:
-            raise InfraError("sim_busy", retry_after_seconds(exc)) from exc
-        except groq.APIError as exc:
-            raise InfraError("sim_error") from exc
+        for attempt in range(TOOL_CALL_RETRIES + 1):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=self._messages(history),
+                    temperature=0.3,
+                    max_completion_tokens=300,
+                    timeout=20,
+                    **extra,
+                )
+                break
+            except groq.BadRequestError as exc:
+                if not is_tool_use_failed(exc) or attempt == TOOL_CALL_RETRIES:
+                    raise InfraError("sim_error") from exc
+                self.retries += 1
+            except groq.RateLimitError as exc:
+                raise InfraError("sim_busy", retry_after_seconds(exc)) from exc
+            except groq.APIError as exc:
+                raise InfraError("sim_error") from exc
 
         text = (response.choices[0].message.content or "").strip()
         if END in text:

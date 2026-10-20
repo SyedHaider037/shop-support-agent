@@ -226,3 +226,48 @@ def test_invented_fact_run_is_infra_error_and_shown_in_the_summary() -> None:
     assert h.agent_fake.requests == []
     summary = markdown_summary([row], k=1)
     assert "`order-sim-01`: sim_invented_fact x1" in summary
+
+
+# --- Phase 4C fix 5 ------------------------------------------------------------------
+
+
+def test_a_stray_simulator_tool_call_is_retried_and_counted() -> None:
+    from tests.fakes import tool_use_failed_error
+
+    sim = SimulatedCustomer(SPEC, FakeGroq(tool_use_failed_error(), reply("Hi there")), "m")
+
+    assert sim.next_message([]) == "Hi there"
+    assert sim.retries == 1
+    assert "Never call a tool." in system_prompt(SPEC)
+
+
+def test_repeated_simulator_tool_calls_end_as_sim_error() -> None:
+    from tests.fakes import tool_use_failed_error
+
+    sim = SimulatedCustomer(SPEC, FakeGroq(*[tool_use_failed_error()] * 3), "m")
+
+    with pytest.raises(InfraError) as caught:
+        sim.next_message([])
+    assert caught.value.code == "sim_error"
+
+
+def test_an_empty_simulated_chat_is_an_infra_error_not_a_fail() -> None:
+    # Before this fix the row was graded "fail" with 0 agent turns (5 times in the first run).
+    h = Harness(agent_script=[], sim_script=[reply(END)] * 3)
+
+    row = h.run(sim_task())
+
+    assert (row["status"], row["error"]) == ("infra_error", "sim_empty_conversation")
+    assert h.agent_fake.requests == []
+
+
+def test_same_model_agent_and_simulator_share_one_pacer() -> None:
+    from evals.run import make_pacers
+
+    task = sim_task()
+    agent, sim = make_pacers(object(), "openai/gpt-oss-20b", "openai/gpt-oss-20b", [(task, 1)])
+    other_agent, other_sim = make_pacers(object(), "m1", "m2", [(task, 1)])
+
+    assert sim is not None and agent.pacer is sim.pacer
+    assert agent.stats is not sim.stats
+    assert other_sim is not None and other_agent.pacer is not other_sim.pacer

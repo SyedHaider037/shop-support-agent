@@ -21,7 +21,7 @@ from app.trace.redact import mask_emails
 from app.trace.trace import estimated_cost_usd
 from evals.graders import first_failure_layer, grade
 from evals.models import Outcome, Task, ToolCallRecord
-from evals.pacer import Pacer, PacerStats
+from evals.pacer import Paced, PacerStats
 
 TODAY = date(2026, 10, 20)  # the day the sample data was written for
 INFRA_ERRORS = frozenset({"model_busy", "api_error", "timeout", "deadline"})
@@ -84,6 +84,7 @@ class Conversation:
     forced_retries: list[dict[str, Any]]  # forced tool calls: turn, reason, first reply (masked)
     # Per agent reply: its text before the output guardrails (masked), or None if unchanged.
     replies_before_guardrails: list[str | None]
+    sim_retries: int  # simulator calls retried after a stray tool call (not infra attempts)
 
 
 def converse(
@@ -144,7 +145,13 @@ def converse(
         raw = result.reply_before_guardrails
         before.append(mask_emails(raw) if raw is not None and raw != result.reply else None)
         history.append({"role": "assistant", "content": result.reply})
-    return Conversation(outcome, history, agent_errors, events, retries, forced, before)
+    if task.customer is not None and not outcome.replies:
+        # The simulated customer ended before the agent said anything: nothing was tested.
+        raise InfraError("sim_empty_conversation")
+    sim_retries = getattr(user, "retries", 0)
+    return Conversation(
+        outcome, history, agent_errors, events, retries, forced, before, sim_retries
+    )
 
 
 def apply_setup(task: Task, store: Store) -> None:
@@ -212,7 +219,7 @@ def _attempt_fields(attempts: list[Attempt], config: RunConfig) -> dict[str, Any
     }
 
 
-def _take(agent: Pacer, sim: Pacer | None) -> tuple[PacerStats, PacerStats]:
+def _take(agent: Paced, sim: Paced | None) -> tuple[PacerStats, PacerStats]:
     return agent.take_stats(), sim.take_stats() if sim else PacerStats()
 
 
@@ -220,9 +227,9 @@ def run_task(
     task: Task,
     trial: int,
     config: RunConfig,
-    agent: Pacer,
+    agent: Paced,
     make_user: UserFactory,
-    sim: Pacer | None = None,
+    sim: Paced | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
@@ -311,6 +318,7 @@ def _row(
         "agent_errors": convo.agent_errors,
         "forced_retries": convo.forced_retries,
         "replies_before_guardrails": convo.replies_before_guardrails,
+        "sim_retries": convo.sim_retries,
         # Sample emails are fake, but masked anyway so results never collect contact details.
         "final_reply": mask_emails(replies[-1]) if replies else None,
         "transcript": mask_emails(convo.transcript),
@@ -367,9 +375,9 @@ def run_all(
     todo: list[tuple[Task, int]],
     out: Path,
     config: RunConfig,
-    agent: Pacer,
+    agent: Paced,
     make_user: UserFactory,
-    sim: Pacer | None = None,
+    sim: Paced | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     echo: Callable[[str], None] = print,

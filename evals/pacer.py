@@ -5,7 +5,9 @@ Waiting for a 429 wastes a request and its retry-after can be long, so every
 call is delayed until a sliding 60 s window has room for it. Budgets sit
 below the hard limits to leave room for estimation error.
 
-One Pacer per model: the limits are per model.
+One Pacer per model: the limits are per model. When two callers use the same model
+(the agent and the simulated customer), they share that Pacer's window through separate
+PacerChannels, so the window is shared but their token counts are not.
 """
 
 import time
@@ -51,6 +53,27 @@ def _cached_tokens(usage: Any) -> int:
     return getattr(details, "cached_tokens", 0) or 0
 
 
+class PacerChannel:
+    """One caller's view of a Pacer: shared window, its own counters."""
+
+    def __init__(self, pacer: "Pacer") -> None:
+        self._pacer = pacer
+        self.stats = PacerStats()  # running totals; callers may reset between tasks
+        self.total_waited_s = 0.0  # never reset: the runner excludes it from deadlines
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **kwargs: pacer.create_for(self, **kwargs))
+        )
+
+    @property
+    def pacer(self) -> "Pacer":
+        return self._pacer
+
+    def take_stats(self) -> PacerStats:
+        """Return the totals since the last call and start counting again."""
+        stats, self.stats = self.stats, PacerStats()
+        return stats
+
+
 class Pacer:
     """Wraps a Groq client; exposes the same chat.completions.create used by the agent."""
 
@@ -70,9 +93,23 @@ class Pacer:
         self._tokens: deque[tuple[float, int]] = deque()  # (time, tokens that count)
         self._requests: deque[float] = deque()
         self._last_prompt: int | None = None
-        self.stats = PacerStats()  # running totals; callers may reset between tasks
-        self.total_waited_s = 0.0  # never reset: the runner excludes it from deadlines
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self._own = PacerChannel(self)
+        self.chat = self._own.chat
+
+    def channel(self) -> PacerChannel:
+        """A separate counter on this pacer's shared window."""
+        return PacerChannel(self)
+
+    @property
+    def stats(self) -> PacerStats:
+        return self._own.stats
+
+    @property
+    def total_waited_s(self) -> float:
+        return self._own.total_waited_s
+
+    def take_stats(self) -> PacerStats:
+        return self._own.take_stats()
 
     def estimate(self) -> int:
         """Tokens the next call will probably use: last prompt plus room for the reply."""
@@ -92,8 +129,9 @@ class Pacer:
         tokens_ok = used + estimate <= self.tpm_budget or not self._tokens
         return tokens_ok and len(self._requests) + 1 <= self.rpm_budget
 
-    def wait_for_room(self) -> float:
+    def wait_for_room(self, channel: PacerChannel | None = None) -> float:
         """Sleep until the next call fits in the window; returns the seconds waited."""
+        channel = channel or self._own
         estimate = self.estimate()
         waited = 0.0
         while True:
@@ -107,11 +145,11 @@ class Pacer:
             pause = max(min(starts) + WINDOW_S - now, 0.0) + 0.05
             self._sleep(pause)
             waited += pause
-        self.stats.waited_s += waited
-        self.total_waited_s += waited
+        channel.stats.waited_s += waited
+        channel.total_waited_s += waited
         return waited
 
-    def _create(self, **kwargs: Any) -> Any:
+    def create_for(self, channel: PacerChannel, **kwargs: Any) -> Any:
         self._prune(self._clock())
         call = PacerCall(
             waited_s=0.0,
@@ -119,10 +157,11 @@ class Pacer:
             window_tokens=sum(tokens for _, tokens in self._tokens),
             window_requests=len(self._requests),
         )
-        call.waited_s = round(self.wait_for_room(), 3)
-        self.stats.calls.append(call)
+        call.waited_s = round(self.wait_for_room(channel), 3)
+        stats = channel.stats
+        stats.calls.append(call)
         self._requests.append(self._clock())
-        self.stats.requests += 1
+        stats.requests += 1
         try:
             response = self._client.chat.completions.create(**kwargs)
         except Exception as exc:
@@ -136,12 +175,11 @@ class Pacer:
             self._last_prompt = call.prompt
             # Cached prompt tokens do not count against Groq's limits.
             self._tokens.append((self._clock(), call.prompt - call.cached + call.completion))
-            self.stats.prompt_tokens += call.prompt
-            self.stats.completion_tokens += call.completion
-            self.stats.cached_tokens += call.cached
+            stats.prompt_tokens += call.prompt
+            stats.completion_tokens += call.completion
+            stats.cached_tokens += call.cached
         return response
 
-    def take_stats(self) -> PacerStats:
-        """Return the totals since the last call and start counting again."""
-        stats, self.stats = self.stats, PacerStats()
-        return stats
+
+# Anything the runner can pace calls through.
+Paced = Pacer | PacerChannel

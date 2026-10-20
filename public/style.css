@@ -506,6 +506,12 @@ code {
   gap: 20px;
 }
 
+/* A status badge sizes to its text instead of stretching across the panel. */
+.trace__body > .badge {
+  align-self: flex-start;
+  margin: 0;
+}
+
 .trace__empty {
   margin: 0;
   color: var(--muted);
@@ -621,6 +627,10 @@ code {
   color: var(--pending-text);
   text-transform: none;
   letter-spacing: 0;
+  /* Long enough to wrap on a phone: a pill radius would turn two lines into a blob. */
+  white-space: normal;
+  border-radius: 8px;
+  padding: 3px 10px;
 }
 
 .site-footer {

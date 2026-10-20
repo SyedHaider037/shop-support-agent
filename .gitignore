@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Tool caches and output
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+*.log
+
+# Local tooling and hosting
+.claude/
+.vercel/
+
+# OS files
+.DS_Store
+Thumbs.db

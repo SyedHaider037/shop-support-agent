@@ -65,6 +65,17 @@ class Step:
 
 
 @dataclass
+class ModelStep:
+    """One successful model call and the tools it asked for, for the trace."""
+
+    step: int
+    latency_ms: int
+    prompt_tokens: int
+    completion_tokens: int
+    tool_calls: list[Step] = field(default_factory=list)
+
+
+@dataclass
 class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -76,6 +87,7 @@ class Usage:
 class AgentResult:
     reply: str
     steps: list[Step] = field(default_factory=list)
+    model_steps: list[ModelStep] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
     guardrail_events: list[GuardrailEvent] = field(default_factory=list)
     retries: list[RetryRecord] = field(default_factory=list)
@@ -97,13 +109,17 @@ def _record_arguments(raw: str | None) -> Any:
         return mask_emails(raw or "")
 
 
-def _add_usage(usage: Usage, response: Any) -> None:
+def _add_usage(usage: Usage, response: Any) -> tuple[int, int]:
+    """Add one call's tokens to the totals; returns that call's (prompt, completion) tokens."""
     usage.model_calls += 1
     reported = getattr(response, "usage", None)
-    if reported is not None:
-        usage.prompt_tokens += reported.prompt_tokens or 0
-        usage.completion_tokens += reported.completion_tokens or 0
-        usage.total_tokens += reported.total_tokens or 0
+    if reported is None:
+        return 0, 0
+    prompt, completion = reported.prompt_tokens or 0, reported.completion_tokens or 0
+    usage.prompt_tokens += prompt
+    usage.completion_tokens += completion
+    usage.total_tokens += reported.total_tokens or 0
+    return prompt, completion
 
 
 def _assistant_turn(message: Any) -> dict[str, Any]:
@@ -169,12 +185,21 @@ def run_agent(
             "temperature": settings.temperature,
             **extra,
         }
+        started = clock()
         outcome = call_model(client, request, settings, deadline, clock, sleep, result.retries)
         if outcome.error is not None:
             return _call_failed(result, outcome.error, outcome.retry_after_s)
         response = outcome.response
 
-        _add_usage(result.usage, response)
+        prompt_tokens, completion_tokens = _add_usage(result.usage, response)
+        model_step = ModelStep(
+            step=len(result.model_steps) + 1,
+            # Includes any retries and waits inside call_model.
+            latency_ms=round((clock() - started) * 1000),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        result.model_steps.append(model_step)
         over_budget = result.usage.total_tokens > settings.token_budget
         message = response.choices[0].message
         force_tool = False
@@ -201,17 +226,17 @@ def run_agent(
 
         conversation.append(_assistant_turn(message))
         for call in message.tool_calls:
-            started = time.perf_counter()
+            tool_started = time.perf_counter()  # real time, not the injectable request clock
             tool_result = dispatch(call.function.name, call.function.arguments, store)
-            latency_ms = round((time.perf_counter() - started) * 1000)
-            result.steps.append(
-                Step(
-                    tool=call.function.name,
-                    arguments=_record_arguments(call.function.arguments),
-                    result=mask_emails(tool_result),
-                    latency_ms=latency_ms,
-                )
+            latency_ms = round((time.perf_counter() - tool_started) * 1000)
+            step = Step(
+                tool=call.function.name,
+                arguments=_record_arguments(call.function.arguments),
+                result=mask_emails(tool_result),
+                latency_ms=latency_ms,
             )
+            result.steps.append(step)
+            model_step.tool_calls.append(step)
             conversation.append(
                 {"role": "tool", "tool_call_id": call.id, "content": json.dumps(tool_result)}
             )

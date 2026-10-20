@@ -18,6 +18,15 @@ REASONING_EFFORTS: tuple[ReasoningEffort, ...] = ("low", "medium", "high")
 # Only these models accept reasoning_effort; others reject or ignore it.
 REASONING_MODEL_PREFIX = "openai/gpt-oss"
 
+# Groq on-demand prices, USD per million tokens: (input, output). Used only for the
+# trace's ESTIMATED cost. Source: https://console.groq.com/docs/models (no date on the
+# page), checked 2026-10-20. Models not listed here get no cost estimate.
+MODEL_PRICES_PER_MILLION: dict[str, tuple[float, float]] = {
+    "openai/gpt-oss-120b": (0.15, 0.60),
+    "openai/gpt-oss-20b": (0.075, 0.30),
+    "qwen/qwen3.8-27b": (0.80, 4.00),
+}
+
 
 class ConfigError(RuntimeError):
     """A required setting is missing or invalid."""

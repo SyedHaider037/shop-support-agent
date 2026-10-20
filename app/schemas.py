@@ -69,3 +69,4 @@ class ChatResponse(BaseModel):
     steps: list[StepOut]
     usage: UsageOut
     guardrail_events: list[GuardrailEventOut]
+    trace: dict[str, Any]

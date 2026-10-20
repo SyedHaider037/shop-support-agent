@@ -5,6 +5,9 @@ app with its own settings, fake client and store, and nothing leaks between test
 """
 
 import hmac
+import time
+import uuid
+from collections.abc import Callable
 from dataclasses import asdict
 
 from dotenv import load_dotenv
@@ -18,6 +21,7 @@ from app.schemas import AdminApproval, ChatRequest, ChatResponse
 from app.store.models import PendingApproval
 from app.store.store import ApprovalAlreadyDecided, ApprovalNotFound, Store
 from app.trace.redact import mask_email, mask_emails
+from app.trace.trace import build_trace, log_line
 
 UNAVAILABLE = "The assistant is temporarily unavailable. Please try again later."
 RATE_LIMITED = "Too many messages. Please wait a moment and try again."
@@ -28,6 +32,7 @@ def create_app(
     client: Groq | None = None,
     store: Store | None = None,
     limiter: RateLimiter | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> FastAPI:
     if settings is None:
         load_dotenv()
@@ -38,6 +43,8 @@ def create_app(
     shop = store if store is not None else Store.fresh()
     groq_client = client
     limits = limiter if limiter is not None else RateLimiter(settings.rate_limit_per_minute)
+    # One JSON line per request on stdout, where serverless hosts collect logs.
+    write_log = log if log is not None else (lambda line: print(line, flush=True))
 
     def get_client() -> Groq:
         # Created on first use so a missing key breaks /chat only, never startup or /health.
@@ -109,7 +116,16 @@ def create_app(
             ) from exc
 
         messages = [m.model_dump() for m in request.messages]
+        started = time.perf_counter()
         result = run_agent(messages, shop, model_client, settings)
+        trace = build_trace(
+            result,
+            settings,
+            request_id=uuid.uuid4().hex,
+            total_latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+        write_log(log_line(trace))
+
         if result.error == BUSY_ERROR:
             # Distinct from an outage: the model is fine, just over its rate limit.
             raise HTTPException(
@@ -125,6 +141,7 @@ def create_app(
             steps=[asdict(step) for step in result.steps],
             usage=asdict(result.usage),
             guardrail_events=[asdict(event) for event in result.guardrail_events],
+            trace=trace,
         )
 
     return app

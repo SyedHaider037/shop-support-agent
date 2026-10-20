@@ -1,4 +1,4 @@
-"""FastAPI app: GET /health and POST /chat.
+"""FastAPI app: GET /health, POST /chat, the admin approval API and the chat page.
 
 create_app() takes its dependencies as arguments so each test builds its own
 app with its own settings, fake client and store, and nothing leaks between tests.
@@ -7,11 +7,13 @@ app with its own settings, fake client and store, and nothing leaks between test
 import hmac
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.staticfiles import StaticFiles
 from groq import Groq
 
 from app.agent.loop import API_ERRORS, BUSY_ERROR, BUSY_REPLY, run_agent
@@ -26,6 +28,19 @@ from app.trace.trace import build_trace, log_line
 UNAVAILABLE = "The assistant is temporarily unavailable. Please try again later."
 RATE_LIMITED = "Too many messages. Please wait a moment and try again."
 
+PUBLIC_DIR = Path(__file__).resolve().parents[1] / "public"
+# The page loads only its own script and stylesheet, so everything else can be refused.
+# The strict CSP means model text can never run as script, even if a rendering bug let
+# HTML through.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+        "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
 
 def create_app(
     settings: Settings | None = None,
@@ -33,6 +48,7 @@ def create_app(
     store: Store | None = None,
     limiter: RateLimiter | None = None,
     log: Callable[[str], None] | None = None,
+    public_dir: Path | None = PUBLIC_DIR,
 ) -> FastAPI:
     if settings is None:
         load_dotenv()
@@ -45,6 +61,15 @@ def create_app(
     limits = limiter if limiter is not None else RateLimiter(settings.rate_limit_per_minute)
     # One JSON line per request on stdout, where serverless hosts collect logs.
     write_log = log if log is not None else (lambda line: print(line, flush=True))
+
+    @app.middleware("http")
+    async def security_headers(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        return response
 
     def get_client() -> Groq:
         # Created on first use so a missing key breaks /chat only, never startup or /health.
@@ -143,6 +168,11 @@ def create_app(
             guardrail_events=[asdict(event) for event in result.guardrail_events],
             trace=trace,
         )
+
+    # Mounted last, so /health, /chat and /admin keep priority. The rate limit is a /chat
+    # dependency, so static files are never limited. No public/ folder: API only.
+    if public_dir is not None and public_dir.is_dir():
+        app.mount("/", StaticFiles(directory=public_dir, html=True), name="public")
 
     return app
 

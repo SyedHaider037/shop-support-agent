@@ -162,8 +162,9 @@ def run_task(
     error: InfraError | None = None
     for attempt in range(INFRA_RETRIES + 1):
         if attempt:
-            wait = (error.retry_after_s or 0) + 1 if error and error.code == "model_busy" else 0
-            sleep(max(wait, INFRA_WAIT_S))
+            # Wait as long as Groq asked (agent or simulator), and at least INFRA_WAIT_S.
+            asked = error.retry_after_s if error and error.retry_after_s is not None else -1
+            sleep(max(asked + 1, INFRA_WAIT_S))
         agent.take_stats()
         if sim:
             sim.take_stats()

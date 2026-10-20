@@ -14,18 +14,20 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from app.config import create_groq_client, load_settings
+from evals.customer_sim import SimulatedCustomer
 from evals.metrics import markdown_summary, suite_pass_rate, task_stats
 from evals.models import TASKS_PATH, Task, load_tasks
 from evals.pacer import Pacer
 from evals.runner import (
     DAILY_LIMIT_EXIT,
     RunConfig,
+    ScriptedUser,
     UserFactory,
+    UserSide,
     finished,
     plan,
     read_rows,
     run_all,
-    scripted_only,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,8 +86,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def user_factory(sim: Pacer | None, sim_model: str) -> UserFactory:
-    """Scripted tasks need no model; simulated customers are added by evals.customer_sim."""
-    return scripted_only
+    """Scripted tasks replay their turns; customer tasks talk to the simulator model."""
+
+    def make(task: Task) -> UserSide:
+        if task.customer is None:
+            return ScriptedUser(task.turns)
+        assert sim is not None, "a simulated task needs the simulator pacer"
+        return SimulatedCustomer(task.customer, sim, sim_model)
+
+    return make
 
 
 def main(argv: Sequence[str] | None = None) -> int:

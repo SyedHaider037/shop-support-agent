@@ -180,8 +180,8 @@ function startPage() {
     return li;
   }
 
-  /** Disable Send for `seconds` and show a live countdown built from `message`. */
-  function waitFor(seconds, message) {
+  /** Disable Send for `seconds` and show a live countdown. The notice in the chat says why. */
+  function waitFor(seconds) {
     clearInterval(state.countdown);
     const wait = Math.max(1, Math.ceil(Number(seconds) || 30));
     state.waitUntil = Date.now() + wait * 1000;
@@ -195,7 +195,7 @@ function startPage() {
         updateSend();
         return;
       }
-      showStatus(`${message} You can send again in ${left} s.`);
+      showStatus(`You can send again in ${left} s.`);
       updateSend();
     };
     tick();
@@ -261,7 +261,7 @@ function startPage() {
   function failed(userNode, text, message) {
     // The message never reached the agent: say so, and give the text back for a retry.
     userNode.classList.add("is-unsent");
-    userNode.appendChild(el("span", "visually-hidden", " (not sent)"));
+    userNode.appendChild(el("span", "msg__unsent", "Not sent"));
     addNotice(message);
     if (!ui.input.value) {
       ui.input.value = text;
@@ -318,10 +318,10 @@ function startPage() {
         }
       } else if (response.status === 429) {
         failed(userNode, text, "You are sending messages too quickly.");
-        waitFor(retryAfter || 30, "Too many messages for now.");
+        waitFor(retryAfter || 30);
       } else if (response.status === 503 && retryAfter) {
         failed(userNode, text, "The AI model is busy right now (its free usage limit was reached).");
-        waitFor(retryAfter, "The model is busy.");
+        waitFor(retryAfter);
       } else if (response.status === 503) {
         failed(userNode, text, "The assistant is temporarily unavailable. Please try again later.");
       } else if (response.status === 422) {

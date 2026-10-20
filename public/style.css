@@ -256,9 +256,17 @@ code {
 
 /* A message the server never received (rate limit, outage): its text goes back to the box. */
 .msg--user.is-unsent {
-  opacity: 0.7;
   outline: 2px dashed var(--user-bg);
   outline-offset: 2px;
+}
+
+/* Said in words, not only by the dashed outline (better-accessibility: no meaning
+   carried by style alone). Full opacity keeps the text at full contrast. */
+.msg__unsent {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 .msg--assistant {

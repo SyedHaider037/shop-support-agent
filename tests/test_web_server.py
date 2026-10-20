@@ -107,3 +107,16 @@ def test_static_files_are_not_rate_limited(tmp_path: Path) -> None:
 def test_default_public_folder_is_the_repo_one() -> None:
     assert PUBLIC_DIR.name == "public"
     assert PUBLIC_DIR.parent == Path(__file__).resolve().parents[1]
+
+
+def test_the_real_chat_page_is_served() -> None:
+    client = client_with(PUBLIC_DIR)
+
+    page = client.get("/")
+    css = client.get("/style.css")
+
+    assert page.status_code == 200
+    assert "shop-support-agent" in page.text
+    assert "Do not enter real personal information." in page.text
+    assert css.status_code == 200
+    assert "text/css" in css.headers["content-type"]

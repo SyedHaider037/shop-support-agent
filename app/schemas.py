@@ -46,7 +46,14 @@ class UsageOut(BaseModel):
     model_calls: int
 
 
+class GuardrailEventOut(BaseModel):
+    layer: str
+    rule: str
+    action: str
+
+
 class ChatResponse(BaseModel):
     reply: str
     steps: list[StepOut]
     usage: UsageOut
+    guardrail_events: list[GuardrailEventOut]

@@ -59,6 +59,7 @@ def create_app(
             reply=result.reply,
             steps=[asdict(step) for step in result.steps],
             usage=asdict(result.usage),
+            guardrail_events=[asdict(event) for event in result.guardrail_events],
         )
 
     return app

@@ -15,6 +15,8 @@ import groq
 
 from app.agent.policy import system_prompt
 from app.config import Settings
+from app.guardrails.input import check_input
+from app.guardrails.rules import GuardrailEvent, GuardrailRules, guardrail_rules
 from app.store.store import Store
 from app.tools.definitions import tool_schemas
 from app.tools.dispatcher import dispatch
@@ -70,6 +72,7 @@ class AgentResult:
     reply: str
     steps: list[Step] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
+    guardrail_events: list[GuardrailEvent] = field(default_factory=list)
     error: str | None = None
 
 
@@ -120,17 +123,27 @@ def run_agent(
     client: groq.Groq,
     settings: Settings,
     clock: Callable[[], float] = time.monotonic,
+    rules: GuardrailRules | None = None,
 ) -> AgentResult:
     """Answer the last user message, given the full conversation so far.
 
-    The clock is injected so tests can move time forward without sleeping.
+    The clock and rules are injectable so tests and evals control them.
     """
     deadline = clock() + settings.request_deadline_s
+    rules = rules or guardrail_rules()
+    result = AgentResult(reply=HANDOFF_REPLY)
+
+    checked = check_input(messages, rules)
+    if checked.event is not None:
+        result.guardrail_events.append(checked.event)
+        result.reply = rules.input_refusal
+        result.error = "input_refused"
+        return result
+
     conversation: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt()},
-        *({"role": m["role"], "content": m["content"]} for m in messages),
+        *checked.messages,
     ]
-    result = AgentResult(reply=HANDOFF_REPLY)
     tools = tool_schemas()
     extra: dict[str, Any] = {}
     if settings.uses_reasoning_effort:

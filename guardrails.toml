@@ -1,0 +1,36 @@
+# Guardrail rules, kept out of code so they can be reviewed and tuned without a deploy.
+# Patterns are Python regular expressions, matched case-insensitively against each user
+# message after control characters are stripped and whitespace is collapsed.
+# Every rule id is recorded in the trace when it fires, so keep ids stable.
+
+[limits]
+max_messages = 20
+max_message_chars = 1000
+
+[refusals]
+input = "Sorry, I can't help with that. I can answer questions about our products, orders, delivery and refunds."
+output_leak = "Sorry, I can't share that. I can help with questions about our products, orders, delivery and refunds."
+
+[[input_patterns]]
+id = "ignore_instructions"
+pattern = '''\b(ignore|disregard|forget|override|bypass)\b.{0,40}\b(previous|prior|above|earlier|all|your|system)\b.{0,20}\b(instructions?|rules|prompts?|directions|guidelines|polic(y|ies))\b'''
+
+[[input_patterns]]
+id = "you_are_now"
+pattern = '''\byou\s+are\s+now\s+(an?\s+|in\s+|no\s+longer\b|free\b|unrestricted\b|unfiltered\b|jailbroken\b|dan\b)'''
+
+[[input_patterns]]
+id = "developer_mode"
+pattern = '''\b(developer|dev|god|debug|admin|jailbreak|dan)\s+mode\b'''
+
+[[input_patterns]]
+id = "no_rules"
+pattern = '''\b(pretend|imagine|act\s+as\s+if|behave\s+as\s+if|assume)\b.{0,40}\b(no|without|zero)\s+(rules|restrictions|limits|guidelines|filters|polic(y|ies))\b'''
+
+[[input_patterns]]
+id = "reveal_prompt"
+pattern = '''\b(reveal|print|repeat|output|dump|leak|recite|show|tell|give|display|write\s+out)\b.{0,40}\b(your|the)\s+((system|initial|original|hidden|secret|internal|full)\s+)?(system\s+prompt|prompt|instructions|guidelines)\b(?!\s+(for|on|to)\b)'''
+
+[[input_patterns]]
+id = "system_prompt_mention"
+pattern = '''\bsystem\s+(prompt|message|instructions)\b'''

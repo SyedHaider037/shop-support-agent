@@ -305,8 +305,12 @@ function startPage() {
       });
       const retryAfter = Number(response.headers.get("Retry-After"));
       if (response.ok) {
-        const data = await response.json();
-        if (typeof data.reply !== "string") throw new Error("bad response");
+        // A broken body means the server answered badly, not that it was unreachable.
+        const data = await response.json().catch(() => null);
+        if (!data || typeof data.reply !== "string") {
+          failed(userNode, text, "Something went wrong on the server. Please try again.");
+          return;
+        }
         state.history = [...messages, { role: "assistant", content: data.reply }];
         addAssistantReply(data);
         if (state.history.length >= MAX_MESSAGES) {

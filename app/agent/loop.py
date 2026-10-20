@@ -13,6 +13,7 @@ from typing import Any
 
 import groq
 
+from app.agent.model_call import RetryRecord, call_model
 from app.agent.policy import system_prompt
 from app.config import Settings
 from app.guardrails.input import check_input
@@ -29,9 +30,12 @@ HANDOFF_REPLY = (
     "Sorry, I couldn't finish that request. A member of our support team will follow up with you."
 )
 API_ERROR_REPLY = "Sorry, our assistant is having trouble right now. Please try again in a moment."
+BUSY_REPLY = "We're busy right now, please try again in a minute."
 
-# Errors that mean the model could not be reached; callers report these as unavailable.
-API_ERRORS = frozenset({"timeout", "rate_limited", "api_error"})
+# The model could not be reached at all; callers report these as an outage.
+API_ERRORS = frozenset({"timeout", "api_error"})
+# The model is up but over its rate limit; callers report this as busy, not broken.
+BUSY_ERROR = "model_busy"
 
 # Models sometimes say "let me check" in plain text without calling a tool, then
 # guess. Seeing one of these with no tool call means: retry once, forcing a tool call.
@@ -74,7 +78,10 @@ class AgentResult:
     steps: list[Step] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
     guardrail_events: list[GuardrailEvent] = field(default_factory=list)
+    retries: list[RetryRecord] = field(default_factory=list)
     error: str | None = None
+    # Set with model_busy: how long Groq asked us to wait.
+    retry_after_s: float | None = None
 
 
 def sounds_like_fake_check(text: str) -> bool:
@@ -125,10 +132,11 @@ def run_agent(
     settings: Settings,
     clock: Callable[[], float] = time.monotonic,
     rules: GuardrailRules | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> AgentResult:
     """Answer the last user message, given the full conversation so far.
 
-    The clock and rules are injectable so tests and evals control them.
+    The clock, sleep and rules are injectable so tests and evals control them.
     """
     deadline = clock() + settings.request_deadline_s
     rules = rules or guardrail_rules()
@@ -153,29 +161,18 @@ def run_agent(
     retried_fake_check = False
 
     for _ in range(settings.max_steps):
-        remaining = deadline - clock()
-        if remaining <= 0:
-            return _stopped(result, "deadline")
-        try:
-            response = client.chat.completions.create(
-                model=settings.model,
-                messages=conversation,
-                tools=tools,
-                tool_choice="required" if force_tool else "auto",
-                temperature=settings.temperature,
-                timeout=min(settings.request_timeout_s, remaining),
-                **extra,
-            )
-        except groq.APITimeoutError:
-            # A timeout cut short by the request deadline is the deadline, not an outage.
-            return (
-                _stopped(result, "deadline") if clock() >= deadline else _failed(result, "timeout")
-            )
-        except groq.RateLimitError:
-            return _failed(result, "rate_limited")
-        except groq.APIError as exc:
-            logger.warning("Groq API error: %s", type(exc).__name__)
-            return _failed(result, "api_error")
+        request = {
+            "model": settings.model,
+            "messages": conversation,
+            "tools": tools,
+            "tool_choice": "required" if force_tool else "auto",
+            "temperature": settings.temperature,
+            **extra,
+        }
+        outcome = call_model(client, request, settings, deadline, clock, sleep, result.retries)
+        if outcome.error is not None:
+            return _call_failed(result, outcome.error, outcome.retry_after_s)
+        response = outcome.response
 
         _add_usage(result.usage, response)
         over_budget = result.usage.total_tokens > settings.token_budget
@@ -229,7 +226,15 @@ def _stopped(result: AgentResult, code: str) -> AgentResult:
     return result
 
 
-def _failed(result: AgentResult, code: str) -> AgentResult:
-    result.reply = API_ERROR_REPLY
-    result.error = code
-    return result
+def _call_failed(result: AgentResult, code: str, retry_after_s: float | None) -> AgentResult:
+    if code == BUSY_ERROR:
+        result.reply = BUSY_REPLY
+        result.error = code
+        result.retry_after_s = retry_after_s
+        return result
+    if code in API_ERRORS:
+        result.reply = API_ERROR_REPLY
+        result.error = code
+        return result
+    # deadline or tool_call_failed: the model was reachable, we just could not finish.
+    return _stopped(result, code)

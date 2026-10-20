@@ -97,9 +97,8 @@ def test_invalid_phase_3_values_raise_config_error(env: dict[str, str]) -> None:
         load_settings(env)
 
 
-def test_client_uses_configured_retries() -> None:
-    assert create_groq_client(Settings(groq_api_key="test-key", max_retries=0)).max_retries == 0
-    assert create_groq_client(Settings(groq_api_key="test-key")).max_retries == 1
+def test_sdk_retries_are_off_because_the_loop_retries() -> None:
+    assert create_groq_client(Settings(groq_api_key="test-key", max_retries=3)).max_retries == 0
 
 
 @pytest.mark.parametrize(

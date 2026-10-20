@@ -35,7 +35,8 @@ class Settings:
     reasoning_effort: ReasoningEffort = "low"
     # Wall-clock cap for a whole /chat request, across every model call and retry.
     request_deadline_s: float = 40.0
-    # The SDK default is 2; one retry is enough within the deadline.
+    # Retries for Groq 429 and 5xx, done by our loop (the SDK's own retries are off)
+    # so every wait is checked against the request deadline.
     max_retries: int = 1
     token_budget: int = 20_000
     rate_limit_per_minute: int = 10
@@ -86,5 +87,6 @@ def create_groq_client(settings: Settings) -> Groq:
     return Groq(
         api_key=settings.groq_api_key,
         timeout=settings.request_timeout_s,
-        max_retries=settings.max_retries,
+        # Off: the SDK would wait out retry-after without knowing our deadline.
+        max_retries=0,
     )

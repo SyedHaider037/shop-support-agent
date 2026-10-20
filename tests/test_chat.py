@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.agent.loop import BUSY_REPLY
 from app.config import Settings
 from app.main import UNAVAILABLE, create_app
 from app.store.store import Store
@@ -98,12 +99,24 @@ def test_missing_api_key_returns_503_and_health_still_works() -> None:
     assert client.get("/health").json() == {"ok": True}
 
 
-@pytest.mark.parametrize("error", [connection_error(), rate_limit_error()])
-def test_api_failure_returns_503_with_safe_message(error: Exception) -> None:
-    response = make_client(FakeGroq(error)).post("/chat", json=body(("user", "hi")))
+def test_api_failure_returns_503_with_safe_message() -> None:
+    response = make_client(FakeGroq(connection_error())).post("/chat", json=body(("user", "hi")))
 
     assert response.status_code == 503
     assert response.json() == {"detail": UNAVAILABLE}
+    assert "Retry-After" not in response.headers
+
+
+def test_busy_model_returns_503_with_retry_after_and_a_different_message() -> None:
+    response = make_client(FakeGroq(rate_limit_error("21.4"))).post(
+        "/chat", json=body(("user", "hi"))
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": BUSY_REPLY}
+    assert BUSY_REPLY != UNAVAILABLE
+    assert response.headers["Retry-After"] == "22"
+    assert "rate limited" not in response.text  # Groq's own error text never leaks
 
 
 def test_max_steps_is_a_normal_reply_not_an_outage() -> None:

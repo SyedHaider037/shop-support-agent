@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from app.agent.loop import API_ERROR_REPLY, HANDOFF_REPLY, run_agent, sounds_like_fake_check
+from app.agent.loop import (
+    API_ERROR_REPLY,
+    BUSY_REPLY,
+    HANDOFF_REPLY,
+    run_agent,
+    sounds_like_fake_check,
+)
 from app.config import Settings
 from app.store.store import Store
 from tests.fakes import (
@@ -172,7 +178,6 @@ def test_max_steps_returns_handoff_reply() -> None:
     [
         (connection_error(), "api_error"),
         (timeout_error(), "timeout"),
-        (rate_limit_error(), "rate_limited"),
     ],
 )
 def test_api_failures_return_safe_reply(error: Exception, code: str) -> None:
@@ -180,6 +185,14 @@ def test_api_failures_return_safe_reply(error: Exception, code: str) -> None:
 
     assert result.reply == API_ERROR_REPLY
     assert result.error == code
+
+
+def test_rate_limit_that_cannot_be_waited_out_is_busy() -> None:
+    result = run_agent(ask("hi"), Store.fresh(), FakeGroq(rate_limit_error("30")), SETTINGS)
+
+    assert result.reply == BUSY_REPLY
+    assert result.error == "model_busy"
+    assert result.retry_after_s == 30
 
 
 def test_api_failure_after_a_tool_call_keeps_the_steps() -> None:

@@ -39,9 +39,28 @@ def timeout_error() -> Exception:
     return groq.APITimeoutError(request=_REQUEST)
 
 
-def rate_limit_error() -> Exception:
-    response = httpx.Response(429, request=_REQUEST)
+def rate_limit_error(retry_after: str | None = "30") -> groq.RateLimitError:
+    """A Groq 429. The default retry-after is too long to wait, so nothing sleeps by accident."""
+    headers = {"retry-after": retry_after} if retry_after is not None else {}
+    response = httpx.Response(429, request=_REQUEST, headers=headers)
     return groq.RateLimitError("rate limited", response=response, body=None)
+
+
+def server_error(status: int = 503) -> Exception:
+    response = httpx.Response(status, request=_REQUEST)
+    return groq.InternalServerError("server error", response=response, body=None)
+
+
+def tool_use_failed_error() -> Exception:
+    response = httpx.Response(400, request=_REQUEST)
+    body = {"error": {"code": "tool_use_failed", "message": "Failed to call a function"}}
+    return groq.BadRequestError("tool_use_failed", response=response, body=body)
+
+
+def bad_request_error() -> Exception:
+    response = httpx.Response(400, request=_REQUEST)
+    body = {"error": {"code": "invalid_request", "message": "bad"}}
+    return groq.BadRequestError("bad request", response=response, body=body)
 
 
 class FakeClock:

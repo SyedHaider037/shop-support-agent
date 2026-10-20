@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from groq import Groq
 
-from app.agent.loop import API_ERRORS, run_agent
+from app.agent.loop import API_ERRORS, BUSY_ERROR, BUSY_REPLY, run_agent
 from app.config import ConfigError, Settings, create_groq_client, load_settings
 from app.ratelimit import RateLimiter, client_ip, retry_after_header
 from app.schemas import ChatRequest, ChatResponse
@@ -68,6 +68,13 @@ def create_app(
 
         messages = [m.model_dump() for m in request.messages]
         result = run_agent(messages, shop, model_client, settings)
+        if result.error == BUSY_ERROR:
+            # Distinct from an outage: the model is fine, just over its rate limit.
+            raise HTTPException(
+                status_code=503,
+                detail=BUSY_REPLY,
+                headers={"Retry-After": retry_after_header(result.retry_after_s or 60)},
+            )
         if result.error in API_ERRORS:
             raise HTTPException(status_code=503, detail=UNAVAILABLE)
 

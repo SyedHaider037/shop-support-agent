@@ -10,10 +10,16 @@
   --border: #d5dae1;
   --accent: #1f5fbf;
   --accent-text: #ffffff;
-  --user-bg: #1f5fbf;
+  /* better-colors: one colour, one meaning. The accent marks what is interactive, so the
+     user's own (static) bubble is neutral and the pending state has its own hue. */
+  --user-bg: #2e3238;
   --user-text: #ffffff;
   --banner-bg: #fff4d6;
   --banner-text: #5c4200;
+  --status-bg: #fff4d6; /* waits and errors under the composer */
+  --status-text: #5c4200;
+  --pending-bg: #5b3fb5;
+  --pending-text: #ffffff;
   --focus: #b35c00;
   --low: #1d7a3a;
   --medium: #8a5a00;
@@ -40,10 +46,14 @@
     --border: #343c47;
     --accent: #6ea8ff;
     --accent-text: #0b1220;
-    --user-bg: #2b5cab;
+    --user-bg: #3b3f45;
     --user-text: #ffffff;
     --banner-bg: #3a2f10;
     --banner-text: #ffe3a1;
+    --status-bg: #3a2f10;
+    --status-text: #ffe3a1;
+    --pending-bg: #b9a6ff;
+    --pending-text: #160f33;
     --focus: #ffb454;
     --low: #3fb867;
     --medium: #e0a526;
@@ -310,8 +320,8 @@ code {
   margin: 0;
   padding: 10px 14px;
   border-radius: var(--radius);
-  background: var(--banner-bg);
-  color: var(--banner-text);
+  background: var(--status-bg);
+  color: var(--status-text);
 }
 
 /* --- composer --------------------------------------------------------------- */
@@ -592,9 +602,10 @@ code {
 }
 
 .badge--pending {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--pending-bg);
+  color: var(--pending-text);
   text-transform: none;
+  letter-spacing: 0;
 }
 
 .site-footer {

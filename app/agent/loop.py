@@ -16,6 +16,7 @@ import groq
 from app.agent.policy import system_prompt
 from app.config import Settings
 from app.guardrails.input import check_input
+from app.guardrails.output import check_output
 from app.guardrails.rules import GuardrailEvent, GuardrailRules, guardrail_rules
 from app.store.store import Store
 from app.tools.definitions import tool_schemas
@@ -191,7 +192,10 @@ def run_agent(
             if not content:
                 return _stopped(result, "token_budget" if over_budget else "empty_reply")
             # A finished answer is kept even if it crossed the budget: the tokens are spent.
-            result.reply = content
+            user_texts = [m["content"] for m in checked.messages if m["role"] == "user"]
+            checked_reply = check_output(content, user_texts, rules)
+            result.reply = checked_reply.reply
+            result.guardrail_events.extend(checked_reply.events)
             return result
 
         if over_budget:

@@ -34,3 +34,18 @@ pattern = '''\b(reveal|print|repeat|output|dump|leak|recite|show|tell|give|displ
 [[input_patterns]]
 id = "system_prompt_mention"
 pattern = '''\bsystem\s+(prompt|message|instructions)\b'''
+
+[output]
+# A reply containing this many consecutive words from policy.md is treated as a prompt
+# leak and replaced. Six is long enough that ordinary support phrasing rarely matches.
+leak_ngram_words = 6
+# Sentences the policy tells the agent to say to customers. Word runs inside these
+# are not leaks; without this list the agent would be refused for following its policy.
+allowed_policy_phrases = [
+    "a human from the support team will follow up",
+    "could not find an order matching that order ID and email",
+    "Would you like me to save your name and email so our team can contact you?",
+    "the order ID and the email address used for the order",
+    "can only help with shop questions",
+    "products, orders, delivery, returns and refunds, and contacting the support team",
+]

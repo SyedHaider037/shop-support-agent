@@ -39,6 +39,8 @@ class GuardrailRules:
     input_refusal: str
     output_leak_refusal: str
     input_patterns: tuple[InputPattern, ...]
+    leak_ngram_words: int
+    allowed_policy_phrases: tuple[str, ...]
 
 
 def _require(table: dict[str, Any], key: str, kind: type, where: str) -> Any:
@@ -68,6 +70,13 @@ def _patterns(raw: Any) -> tuple[InputPattern, ...]:
     return tuple(patterns)
 
 
+def _phrases(output: dict[str, Any]) -> tuple[str, ...]:
+    raw = output.get("allowed_policy_phrases", [])
+    if not isinstance(raw, list) or not all(isinstance(p, str) and p for p in raw):
+        raise GuardrailConfigError("output.allowed_policy_phrases must be a list of strings")
+    return tuple(raw)
+
+
 def load_rules(path: Path = RULES_PATH) -> GuardrailRules:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -80,12 +89,26 @@ def load_rules(path: Path = RULES_PATH) -> GuardrailRules:
     refusals = data.get("refusals")
     if not isinstance(limits, dict) or not isinstance(refusals, dict):
         raise GuardrailConfigError("guardrails.toml needs [limits] and [refusals] tables")
+    max_messages = _require(limits, "max_messages", int, "limits")
+    max_message_chars = _require(limits, "max_message_chars", int, "limits")
+    input_refusal = _require(refusals, "input", str, "refusals")
+    output_leak_refusal = _require(refusals, "output_leak", str, "refusals")
+    patterns = _patterns(data.get("input_patterns"))
+
+    output = data.get("output")
+    if not isinstance(output, dict):
+        raise GuardrailConfigError("guardrails.toml needs an [output] table")
+    ngram = _require(output, "leak_ngram_words", int, "output")
+    if ngram < 3:
+        raise GuardrailConfigError("output.leak_ngram_words must be at least 3")
     return GuardrailRules(
-        max_messages=_require(limits, "max_messages", int, "limits"),
-        max_message_chars=_require(limits, "max_message_chars", int, "limits"),
-        input_refusal=_require(refusals, "input", str, "refusals"),
-        output_leak_refusal=_require(refusals, "output_leak", str, "refusals"),
-        input_patterns=_patterns(data.get("input_patterns")),
+        max_messages=max_messages,
+        max_message_chars=max_message_chars,
+        input_refusal=input_refusal,
+        output_leak_refusal=output_leak_refusal,
+        input_patterns=patterns,
+        leak_ngram_words=ngram,
+        allowed_policy_phrases=_phrases(output),
     )
 
 

@@ -217,6 +217,13 @@ code {
   white-space: pre-wrap;
 }
 
+/* A message the server never received (rate limit, outage): its text goes back to the box. */
+.msg--user.is-unsent {
+  opacity: 0.7;
+  outline: 2px dashed var(--user-bg);
+  outline-offset: 2px;
+}
+
 .msg--assistant {
   align-self: flex-start;
   background: var(--surface-2);

@@ -10,6 +10,7 @@ max_message_chars = 1000
 [refusals]
 input = "Sorry, I can't help with that. I can answer questions about our products, orders, delivery and refunds."
 output_leak = "Sorry, I can't share that. I can help with questions about our products, orders, delivery and refunds."
+action_claim = "Sorry, nothing has been submitted or saved yet. For a refund, please share the order ID, the email used for the order and the reason, and I will send it to our team for review."
 
 [[input_patterns]]
 id = "ignore_instructions"
@@ -51,3 +52,21 @@ allowed_policy_phrases = [
     "a human from the support team will follow up, and that it is not approved yet",
     "Only orders delivered in the last 30 days, with no earlier request, are eligible.",
 ]
+
+# First-person claims that the agent DID something, checked on the final reply. The server
+# keeps no memory, so only a successful write tool call (request_refund or capture_lead
+# returning ok) in THIS request can back such a claim. Rules with always = true are replaced
+# even then: the agent can never approve or pay a refund. Conditional wording ("once I've
+# submitted it") is not a claim, hence the lookbehinds.
+[[action_claims]]
+id = "claimed_submitted"
+pattern = '''(?<!once )(?<!when )(?<!after )(?<!if )\bI(?:'ve| have)?\s+(?:just\s+|now\s+|already\s+)?(?:submitted|created|sent|filed|logged|raised|placed|forwarded|passed on)\b'''
+
+[[action_claims]]
+id = "claimed_saved"
+pattern = '''(?<!once )(?<!when )(?<!after )(?<!if )\bI(?:'ve| have)?\s+(?:just\s+|now\s+|already\s+)?(?:saved|recorded|captured|noted down)\b'''
+
+[[action_claims]]
+id = "claimed_approved"
+pattern = '''(?<!once )(?<!when )(?<!after )(?<!if )\bI(?:'ve| have)?\s+(?:just\s+|now\s+|already\s+)?(?:approved|processed|refunded|issued)\b'''
+always = true

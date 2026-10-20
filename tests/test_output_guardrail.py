@@ -23,8 +23,8 @@ STRAY_EMAIL = GuardrailEvent("output", "stray_email", "masked")
 STRAY_PHONE = GuardrailEvent("output", "stray_phone", "masked")
 
 
-def check(text: str, *user_texts: str) -> OutputCheck:
-    return check_output(text, list(user_texts), RULES)
+def check(text: str, *user_texts: str, write_succeeded: bool = False) -> OutputCheck:
+    return check_output(text, list(user_texts), RULES, write_succeeded=write_succeeded)
 
 
 # --- prompt leak ------------------------------------------------------------
@@ -62,7 +62,8 @@ def test_phrases_the_policy_tells_the_agent_to_say_are_allowed() -> None:
     ]
 
     for text in texts:
-        assert check(text).events == [], text
+        # These follow a successful request_refund, so first-person claims are backed.
+        assert check(text, write_succeeded=True).events == [], text
 
 
 def test_every_policy_sentence_would_be_caught_except_allowed_ones() -> None:
@@ -102,7 +103,8 @@ def test_other_customers_email_is_masked() -> None:
 def test_users_own_email_is_kept_case_insensitively() -> None:
     text = "I've saved Jane.Doe@Example.com for follow-up."
 
-    result = check(text, "My email is jane.doe@example.com")
+    # Only said after capture_lead returned ok, so the "I've saved" claim is backed.
+    result = check(text, "My email is jane.doe@example.com", write_succeeded=True)
 
     assert result.reply == text
     assert result.events == []

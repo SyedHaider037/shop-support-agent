@@ -63,11 +63,26 @@ def _phones(text: str) -> list[str]:
     return found
 
 
+def claimed_action(reply: str, rules: GuardrailRules, write_succeeded: bool) -> str | None:
+    """The id of a rule that catches the reply claiming an action no tool performed."""
+    text = reply.replace("\u2019", "'")
+    for rule in rules.action_claims:
+        if rule.regex.search(text) and (rule.always or not write_succeeded):
+            return rule.id
+    return None
+
+
 def check_output(
-    reply: str, user_texts: list[str], rules: GuardrailRules, policy: str | None = None
+    reply: str,
+    user_texts: list[str],
+    rules: GuardrailRules,
+    policy: str | None = None,
+    write_succeeded: bool = False,
 ) -> OutputCheck:
     """Return the reply to send, with any guardrail events.
 
+    `write_succeeded` says a write tool (request_refund, capture_lead) returned ok in this
+    request; earlier turns are not proof, because the server keeps no memory.
     `policy` defaults to the bundled policy.md; tests pass their own text.
     """
     n = rules.leak_ngram_words
@@ -81,6 +96,12 @@ def check_output(
         return OutputCheck(
             reply=rules.output_leak_refusal,
             events=[GuardrailEvent(layer="output", rule="prompt_leak", action="replaced")],
+        )
+    claim = claimed_action(reply, rules, write_succeeded)
+    if claim:
+        return OutputCheck(
+            reply=rules.action_claim_refusal,
+            events=[GuardrailEvent(layer="output", rule=claim, action="replaced")],
         )
 
     user_text = "\n".join(user_texts)

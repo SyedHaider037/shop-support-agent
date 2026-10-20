@@ -21,7 +21,7 @@ from app.guardrails.input import check_input
 from app.guardrails.output import check_output
 from app.guardrails.rules import GuardrailEvent, GuardrailRules, guardrail_rules
 from app.store.store import Store
-from app.tools.definitions import tool_schemas
+from app.tools.definitions import TOOLS, tool_schemas
 from app.tools.dispatcher import dispatch
 from app.trace.redact import mask_emails
 
@@ -155,6 +155,14 @@ def should_force_tool(reply: str, user_texts: list[str]) -> bool:
     )
 
 
+def write_succeeded(steps: list[Step]) -> bool:
+    """A write tool (refund request, lead) returned ok in this request."""
+    return any(
+        (spec := TOOLS.get(s.tool)) is not None and not spec.read_only and s.result.get("ok")
+        for s in steps
+    )
+
+
 def _record_arguments(raw: str | None) -> Any:
     """A masked copy of the arguments for the trace; unparseable input is kept as masked text."""
     try:
@@ -245,7 +253,9 @@ def run_agent(
         if outcome.error == "tool_call_failed" and force_tool and result.first_reply:
             # The forced call failed, but the model's own reply is still there: send it
             # (if the output checks allow it) rather than a generic handoff.
-            recovered = check_output(result.first_reply, user_texts, rules)
+            recovered = check_output(
+                result.first_reply, user_texts, rules, write_succeeded=write_succeeded(result.steps)
+            )
             if recovered.events:
                 return _call_failed(result, outcome.error, outcome.retry_after_s)
             result.reply = recovered.reply
@@ -284,7 +294,9 @@ def run_agent(
             if not content:
                 return _stopped(result, "token_budget" if over_budget else "empty_reply")
             # A finished answer is kept even if it crossed the budget: the tokens are spent.
-            checked_reply = check_output(content, user_texts, rules)
+            checked_reply = check_output(
+                content, user_texts, rules, write_succeeded=write_succeeded(result.steps)
+            )
             result.reply = checked_reply.reply
             result.guardrail_events.extend(checked_reply.events)
             return result

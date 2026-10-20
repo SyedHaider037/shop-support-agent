@@ -22,6 +22,8 @@ coverage/
 # Eval results stay local; only the empty folder is tracked
 evals/results/*
 !evals/results/.gitkeep
+# Published, reviewed result files are tracked; raw runs stay local
+!evals/results/published/
 
 # Local tooling and hosting
 .claude/

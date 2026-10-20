@@ -7,6 +7,7 @@ failure becomes an AgentResult with a safe reply instead of an exception.
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -114,19 +115,33 @@ def _assistant_turn(message: Any) -> dict[str, Any]:
 
 
 def run_agent(
-    messages: list[dict[str, str]], store: Store, client: groq.Groq, settings: Settings
+    messages: list[dict[str, str]],
+    store: Store,
+    client: groq.Groq,
+    settings: Settings,
+    clock: Callable[[], float] = time.monotonic,
 ) -> AgentResult:
-    """Answer the last user message, given the full conversation so far."""
+    """Answer the last user message, given the full conversation so far.
+
+    The clock is injected so tests can move time forward without sleeping.
+    """
+    deadline = clock() + settings.request_deadline_s
     conversation: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt()},
         *({"role": m["role"], "content": m["content"]} for m in messages),
     ]
     result = AgentResult(reply=HANDOFF_REPLY)
     tools = tool_schemas()
+    extra: dict[str, Any] = {}
+    if settings.uses_reasoning_effort:
+        extra["reasoning_effort"] = settings.reasoning_effort
     force_tool = False
     retried_fake_check = False
 
     for _ in range(settings.max_steps):
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return _stopped(result, "deadline")
         try:
             response = client.chat.completions.create(
                 model=settings.model,
@@ -134,9 +149,14 @@ def run_agent(
                 tools=tools,
                 tool_choice="required" if force_tool else "auto",
                 temperature=settings.temperature,
+                timeout=min(settings.request_timeout_s, remaining),
+                **extra,
             )
         except groq.APITimeoutError:
-            return _failed(result, "timeout")
+            # A timeout cut short by the request deadline is the deadline, not an outage.
+            return (
+                _stopped(result, "deadline") if clock() >= deadline else _failed(result, "timeout")
+            )
         except groq.RateLimitError:
             return _failed(result, "rate_limited")
         except groq.APIError as exc:
@@ -144,21 +164,26 @@ def run_agent(
             return _failed(result, "api_error")
 
         _add_usage(result.usage, response)
+        over_budget = result.usage.total_tokens > settings.token_budget
         message = response.choices[0].message
         force_tool = False
 
         if not message.tool_calls:
             content = (message.content or "").strip()
-            if not retried_fake_check and sounds_like_fake_check(content):
+            if not over_budget and not retried_fake_check and sounds_like_fake_check(content):
                 logger.info("reply narrated a check without a tool call; retrying with a tool")
                 retried_fake_check = True
                 force_tool = True
                 continue
             if not content:
-                result.error = "empty_reply"
-                return result
+                return _stopped(result, "token_budget" if over_budget else "empty_reply")
+            # A finished answer is kept even if it crossed the budget: the tokens are spent.
             result.reply = content
             return result
+
+        if over_budget:
+            # Stop before running more tools: that would only lead to another model call.
+            return _stopped(result, "token_budget")
 
         conversation.append(_assistant_turn(message))
         for call in message.tool_calls:
@@ -177,7 +202,13 @@ def run_agent(
                 {"role": "tool", "tool_call_id": call.id, "content": json.dumps(tool_result)}
             )
 
-    result.error = "max_steps"
+    return _stopped(result, "max_steps")
+
+
+def _stopped(result: AgentResult, code: str) -> AgentResult:
+    """A limit was hit: hand off to a human rather than guess."""
+    result.reply = HANDOFF_REPLY
+    result.error = code
     return result
 
 

@@ -6,6 +6,7 @@ from app.agent.loop import API_ERROR_REPLY, HANDOFF_REPLY, run_agent, sounds_lik
 from app.config import Settings
 from app.store.store import Store
 from tests.fakes import (
+    FakeClock,
     FakeGroq,
     connection_error,
     rate_limit_error,
@@ -248,3 +249,122 @@ def test_two_conversations_with_fresh_stores_do_not_share_state() -> None:
 
     assert len(store_a.list_leads()) == 1
     assert store_b.list_leads() == []
+
+
+# --- deadline, token budget and reasoning effort ---------------------------------
+
+
+def test_deadline_hit_between_steps() -> None:
+    clock = FakeClock()
+    settings = Settings(groq_api_key="test-key", request_deadline_s=40)
+    client = FakeGroq(
+        tool_calls(tool_call("search_products", {"query": "wallet"})),
+        reply("never reached"),
+        on_call=lambda: clock.advance(41),
+    )
+
+    result = run_agent(ask("wallet"), Store.fresh(), client, settings, clock=clock)
+
+    assert result.error == "deadline"
+    assert result.reply == HANDOFF_REPLY
+    assert len(client.requests) == 1
+    assert len(result.steps) == 1
+
+
+def test_per_call_timeout_shrinks_to_the_remaining_time() -> None:
+    clock = FakeClock()
+    settings = Settings(groq_api_key="test-key", request_deadline_s=30, request_timeout_s=20)
+    client = FakeGroq(
+        tool_calls(tool_call("search_products", {"query": "wallet"})),
+        reply("Here you go."),
+        on_call=lambda: clock.advance(25),
+    )
+
+    result = run_agent(ask("wallet"), Store.fresh(), client, settings, clock=clock)
+
+    assert result.error is None
+    assert [r["timeout"] for r in client.requests] == [20, 5]
+
+
+def test_timeout_after_the_deadline_is_reported_as_deadline() -> None:
+    clock = FakeClock()
+    settings = Settings(groq_api_key="test-key", request_deadline_s=10)
+    client = FakeGroq(timeout_error(), on_call=lambda: clock.advance(10))
+
+    result = run_agent(ask("hi"), Store.fresh(), client, settings, clock=clock)
+
+    assert result.error == "deadline"
+    assert result.reply == HANDOFF_REPLY
+
+
+def test_token_budget_stops_before_running_more_tools() -> None:
+    settings = Settings(groq_api_key="test-key", token_budget=1000)
+    lead = {"name": "Test User", "email": "t@example.com"}
+    client = FakeGroq(tool_calls(tool_call("capture_lead", lead), tokens=1500))
+    store = Store.fresh()
+
+    result = run_agent(ask("save me"), store, client, settings)
+
+    assert result.error == "token_budget"
+    assert result.reply == HANDOFF_REPLY
+    assert result.usage.total_tokens == 1501
+    assert result.steps == []
+    assert store.list_leads() == []
+
+
+def test_token_budget_hit_across_calls() -> None:
+    settings = Settings(groq_api_key="test-key", token_budget=1000)
+    client = FakeGroq(
+        tool_calls(tool_call("search_products", {"query": "wallet"}), tokens=600),
+        tool_calls(tool_call("search_products", {"query": "belt"}), tokens=600),
+        reply("never reached"),
+    )
+
+    result = run_agent(ask("wallet and belt"), Store.fresh(), client, settings)
+
+    assert result.error == "token_budget"
+    assert len(client.requests) == 2
+    assert [s.arguments["query"] for s in result.steps] == ["wallet"]
+
+
+def test_final_answer_that_crosses_the_budget_is_kept() -> None:
+    settings = Settings(groq_api_key="test-key", token_budget=1000)
+    client = FakeGroq(reply("Here is your answer.", tokens=1500))
+
+    result = run_agent(ask("hi"), Store.fresh(), client, settings)
+
+    assert result.error is None
+    assert result.reply == "Here is your answer."
+
+
+def test_normal_run_is_unaffected_by_limits() -> None:
+    clock = FakeClock()
+    client = FakeGroq(
+        tool_calls(tool_call("get_order_status", ORDER_ARGS)),
+        reply("Delivered."),
+        on_call=lambda: clock.advance(3),
+    )
+
+    result = run_agent(ask("ORD-1001"), Store.fresh(), client, SETTINGS, clock=clock)
+
+    assert (result.reply, result.error) == ("Delivered.", None)
+    assert [r["timeout"] for r in client.requests] == [20, 20]
+
+
+def test_reasoning_effort_is_sent_for_gpt_oss() -> None:
+    client = FakeGroq(reply("ok"))
+    settings = Settings(groq_api_key="k", model="openai/gpt-oss-120b", reasoning_effort="medium")
+
+    run_agent(ask("hi"), Store.fresh(), client, settings)
+
+    assert client.requests[0]["reasoning_effort"] == "medium"
+
+
+def test_reasoning_effort_is_not_sent_for_other_models() -> None:
+    client = FakeGroq(reply("ok"))
+
+    run_agent(
+        ask("hi"), Store.fresh(), client, Settings(groq_api_key="k", model="qwen/qwen3.8-27b")
+    )
+
+    assert "reasoning_effort" not in client.requests[0]

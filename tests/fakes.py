@@ -1,6 +1,7 @@
 """A scripted stand-in for the Groq client, so tests never call the real API."""
 
 import json
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -43,11 +44,28 @@ def rate_limit_error() -> Exception:
     return groq.RateLimitError("rate limited", response=response, body=None)
 
 
-class FakeGroq:
-    """Returns (or raises) the scripted items in order and records every request."""
+class FakeClock:
+    """A monotonic clock that only moves when a test says so."""
 
-    def __init__(self, *script: Any) -> None:
+    def __init__(self, now: float = 1000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class FakeGroq:
+    """Returns (or raises) the scripted items in order and records every request.
+
+    on_call runs before each response, e.g. to advance a FakeClock.
+    """
+
+    def __init__(self, *script: Any, on_call: Callable[[], None] | None = None) -> None:
         self.script = list(script)
+        self.on_call = on_call
         self.requests: list[dict[str, Any]] = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
@@ -57,6 +75,8 @@ class FakeGroq:
         if not self.script:
             raise AssertionError("FakeGroq ran out of scripted responses")
         item = self.script.pop(0)
+        if self.on_call is not None:
+            self.on_call()
         if isinstance(item, Exception):
             raise item
         return item

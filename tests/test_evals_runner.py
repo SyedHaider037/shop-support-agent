@@ -359,3 +359,23 @@ def test_infra_rows_keep_their_attempts() -> None:
 
     assert [a["status"] for a in row["attempts"]] == ["model_busy"] * 3
     assert row["infra_retry_waits_s"] == [31, 31]
+
+
+def test_forced_retries_are_recorded_with_the_masked_first_reply() -> None:
+    task = make_task(turns=["Where is ORD-1002? sam.lee@example.com"])
+    h = Harness(
+        reply("Let me check that for sam.lee@example.com, one moment."),
+        tool_calls(ORDER_CALL),
+        reply("It shipped."),
+    )
+
+    row = h.run(task)
+
+    assert row["forced_retries"] == [
+        {
+            "turn": 1,
+            "reason": "promised_lookup",
+            "first_reply": "Let me check that for s***@example.com, one moment.",
+            "recovered_error": None,
+        }
+    ]

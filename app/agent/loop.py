@@ -6,6 +6,7 @@ failure becomes an AgentResult with a safe reply instead of an exception.
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -38,10 +39,13 @@ API_ERRORS = frozenset({"timeout", "api_error"})
 BUSY_ERROR = "model_busy"
 
 # Models sometimes say "let me check" in plain text without calling a tool, then
-# guess. Seeing one of these with no tool call means: retry once, forcing a tool call.
+# guess. Seeing one of these with no tool call can mean: retry once, forcing a tool call.
 FAKE_CHECK_PHRASES = (
     "let me check",
     "let me look",
+    "i'll check",
+    "i will check",
+    "i'll look",
     "give me a moment",
     "just a moment",
     "one moment",
@@ -54,6 +58,25 @@ FAKE_CHECK_PHRASES = (
     "looking up",
     "looking into",
 )
+# A reply that asks the customer for something is a finished turn, even if it also says
+# "I can look up the order". Forcing a tool call then makes Groq reject the call (400
+# tool_use_failed) and the customer gets the handoff text instead of the question.
+ASKING_PHRASES = (
+    "?",
+    "could you",
+    "can you",
+    "would you",
+    "please provide",
+    "please share",
+    "please send",
+    "please confirm",
+    "please let me know",
+    "may i have",
+    "what is your",
+)
+_ORDER_ID = re.compile(r"\bORD[-‑]?\d+\b", re.IGNORECASE)
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PRODUCT_WORDS = re.compile(r"\b(?:product|products|stock|catalog|price|prices|item|items)\b", re.I)
 
 
 @dataclass
@@ -94,11 +117,42 @@ class AgentResult:
     error: str | None = None
     # Set with model_busy: how long Groq asked us to wait.
     retry_after_s: float | None = None
+    # Why a tool call was forced ("promised_lookup"), or None if it never was.
+    forced_retry_reason: str | None = None
+    # The reply that triggered the forced retry. Raw model text that never passed the
+    # output guardrails, so it is for evals only: never put it in the API or the logs.
+    first_reply: str | None = None
+    # An error the loop recovered from, e.g. tool_call_failed after a forced retry.
+    recovered_error: str | None = None
 
 
 def sounds_like_fake_check(text: str) -> bool:
     lower = text.lower()
     return any(phrase in lower for phrase in FAKE_CHECK_PHRASES)
+
+
+def asks_customer(text: str) -> bool:
+    lower = text.lower()
+    return any(phrase in lower for phrase in ASKING_PHRASES)
+
+
+def lookup_args_available(user_texts: list[str], reply: str) -> bool:
+    """Could a forced tool call be valid? Orders need an ID and an email from the customer;
+    a product search only needs words, so any talk of products qualifies."""
+    typed = "\n".join(user_texts)
+    if _ORDER_ID.search(typed) and _EMAIL.search(typed):
+        return True
+    return bool(_PRODUCT_WORDS.search(reply) or _PRODUCT_WORDS.search(typed))
+
+
+def should_force_tool(reply: str, user_texts: list[str]) -> bool:
+    """Force a tool call only for a promise to look something up that the model could keep:
+    no question to the customer, and the arguments the tool needs are available."""
+    return (
+        sounds_like_fake_check(reply)
+        and not asks_customer(reply)
+        and lookup_args_available(user_texts, reply)
+    )
 
 
 def _record_arguments(raw: str | None) -> Any:
@@ -173,6 +227,7 @@ def run_agent(
     extra: dict[str, Any] = {}
     if settings.uses_reasoning_effort:
         extra["reasoning_effort"] = settings.reasoning_effort
+    user_texts = [m["content"] for m in checked.messages if m["role"] == "user"]
     force_tool = False
     retried_fake_check = False
 
@@ -187,6 +242,15 @@ def run_agent(
         }
         started = clock()
         outcome = call_model(client, request, settings, deadline, clock, sleep, result.retries)
+        if outcome.error == "tool_call_failed" and force_tool and result.first_reply:
+            # The forced call failed, but the model's own reply is still there: send it
+            # (if the output checks allow it) rather than a generic handoff.
+            recovered = check_output(result.first_reply, user_texts, rules)
+            if recovered.events:
+                return _call_failed(result, outcome.error, outcome.retry_after_s)
+            result.reply = recovered.reply
+            result.recovered_error = outcome.error
+            return result
         if outcome.error is not None:
             return _call_failed(result, outcome.error, outcome.retry_after_s)
         response = outcome.response
@@ -206,15 +270,20 @@ def run_agent(
 
         if not message.tool_calls:
             content = (message.content or "").strip()
-            if not over_budget and not retried_fake_check and sounds_like_fake_check(content):
-                logger.info("reply narrated a check without a tool call; retrying with a tool")
+            if (
+                not over_budget
+                and not retried_fake_check
+                and should_force_tool(content, user_texts)
+            ):
+                logger.info("reply promised a lookup without a tool call; retrying with a tool")
                 retried_fake_check = True
                 force_tool = True
+                result.forced_retry_reason = "promised_lookup"
+                result.first_reply = content
                 continue
             if not content:
                 return _stopped(result, "token_budget" if over_budget else "empty_reply")
             # A finished answer is kept even if it crossed the budget: the tokens are spent.
-            user_texts = [m["content"] for m in checked.messages if m["role"] == "user"]
             checked_reply = check_output(content, user_texts, rules)
             result.reply = checked_reply.reply
             result.guardrail_events.extend(checked_reply.events)

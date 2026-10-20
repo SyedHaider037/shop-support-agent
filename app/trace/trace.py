@@ -76,6 +76,10 @@ def build_trace(
             settings.model, usage.prompt_tokens, usage.completion_tokens, prices
         ),
         "error": result.error,
+        # Why a tool call was forced, and any error the loop recovered from. The first
+        # reply's text is deliberately absent: it never passed the output guardrails.
+        "forced_retry_reason": result.forced_retry_reason,
+        "recovered_error": result.recovered_error,
     }
 
 

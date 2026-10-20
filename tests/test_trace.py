@@ -14,6 +14,8 @@ from tests.fakes import FakeClock, FakeGroq, rate_limit_error, reply, tool_call,
 SETTINGS = Settings(groq_api_key="test-key")
 ORDER_ARGS = {"order_id": "ORD-1001", "email": "jane.doe@example.com"}
 TRACE_KEYS = {
+    "forced_retry_reason",
+    "recovered_error",
     "request_id",
     "model",
     "reasoning_effort",
@@ -190,3 +192,19 @@ def test_trace_cost_uses_the_configured_price() -> None:
     input_price, output_price = MODEL_PRICES_PER_MILLION["openai/gpt-oss-120b"]
     expected = (1_000 * input_price + 1 * output_price) / 1e6
     assert trace["estimated_cost_usd"] == pytest.approx(expected)
+
+
+def test_forced_retry_reason_is_traced_but_the_first_reply_text_is_not() -> None:
+    first = "Let me check that order, one moment. SECRET-FIRST-REPLY"
+    fake = FakeGroq(
+        reply(first),
+        tool_calls(tool_call("get_order_status", ORDER_ARGS)),
+        reply("Delivered."),
+    )
+
+    trace, logs = chat(fake, "ORD-1001, jane.doe@example.com")
+
+    assert trace["forced_retry_reason"] == "promised_lookup"
+    assert trace["recovered_error"] is None
+    assert "SECRET-FIRST-REPLY" not in json.dumps(trace)
+    assert "SECRET-FIRST-REPLY" not in logs[0]

@@ -81,6 +81,7 @@ class Conversation:
     agent_errors: list[str]
     guardrail_events: list[dict[str, str]]
     agent_retries: list[dict[str, Any]]  # the agent loop's own 429/5xx/tool_use_failed retries
+    forced_retries: list[dict[str, Any]]  # forced tool calls: turn, reason, first reply (masked)
 
 
 def converse(
@@ -103,6 +104,7 @@ def converse(
     agent_errors: list[str] = []
     events: list[dict[str, str]] = []
     retries: list[dict[str, Any]] = []
+    forced: list[dict[str, Any]] = []
     for turn in range(1, max_turns + 1):
         text = user.next_message(history)
         if text is None:
@@ -111,6 +113,15 @@ def converse(
         outcome.user_texts.append(text)
         result = run_agent(history, store, client, settings, clock=clock, sleep=sleep)
         retries += [{"turn": turn, **asdict(retry)} for retry in result.retries]
+        if result.forced_retry_reason:
+            forced.append(
+                {
+                    "turn": turn,
+                    "reason": result.forced_retry_reason,
+                    "first_reply": mask_emails(result.first_reply or ""),
+                    "recovered_error": result.recovered_error,
+                }
+            )
         if result.error in INFRA_ERRORS:
             raise InfraError(result.error or "api_error", result.retry_after_s)
         if result.error:
@@ -128,7 +139,7 @@ def converse(
                 outcome.input_rules_fired.append(event.rule)
         outcome.replies.append(result.reply)
         history.append({"role": "assistant", "content": result.reply})
-    return Conversation(outcome, history, agent_errors, events, retries)
+    return Conversation(outcome, history, agent_errors, events, retries, forced)
 
 
 def apply_setup(task: Task, store: Store) -> None:
@@ -293,6 +304,7 @@ def _row(
         "failed_checks": [asdict(f) for f in failures],
         "first_failure_layer": first_failure_layer(failures, convo.outcome),
         "agent_errors": convo.agent_errors,
+        "forced_retries": convo.forced_retries,
         # Sample emails are fake, but masked anyway so results never collect contact details.
         "final_reply": mask_emails(replies[-1]) if replies else None,
         "transcript": mask_emails(convo.transcript),

@@ -245,7 +245,8 @@ def test_dry_run_prints_the_plan_without_calls(
             str(tasks),
             "--out",
             str(tmp_path / "o.jsonl"),
-        ]
+        ],
+        env={},
     )
 
     printed = capsys.readouterr().out
@@ -281,13 +282,41 @@ def test_fail_under_uses_the_regression_suite(tmp_path: Path) -> None:
     out.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     argv = ["--tasks-file", str(tasks), "--out", str(out)]
 
-    assert cli.main([*argv, "--fail-under", "0.9"]) == 1
-    assert cli.main([*argv, "--fail-under", "0.5"]) == 0
+    assert cli.main([*argv, "--fail-under", "0.9"], env={}) == 1
+    assert cli.main([*argv, "--fail-under", "0.5"], env={}) == 0
     assert "Failed tasks" in out.with_suffix(".md").read_text(encoding="utf-8")
 
 
 def test_daily_limit_exit_code_is_distinct() -> None:
     assert DAILY_LIMIT_EXIT not in (0, 1, 2)
+
+
+# --- isolation from the real .env ---------------------------------------------------
+
+
+def test_cli_tests_never_read_the_real_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("the real .env was read")
+
+    monkeypatch.setattr(cli, "load_dotenv", refuse)
+    monkeypatch.setenv("GROQ_API_KEY", "real-key-that-must-not-be-used")
+    tasks = write_tasks(tmp_path / "tasks.json", make_task(id="a-01"))
+    argv = ["--dry-run", "--tasks-file", str(tasks), "--out", str(tmp_path / "o.jsonl")]
+
+    assert cli.main(argv, env={}) == 0
+    assert cli.build_settings(cli.parse_args(argv), {}).groq_api_key is None
+
+
+def test_the_real_command_line_does_read_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Any] = []
+    monkeypatch.setattr(cli, "load_dotenv", lambda *args, **kwargs: calls.append(args))
+    tasks = write_tasks(tmp_path / "tasks.json", make_task(id="a-01"))
+
+    cli.main(["--dry-run", "--tasks-file", str(tasks), "--out", str(tmp_path / "o.jsonl")])
+
+    assert calls == [(cli.ROOT / ".env",)]
 
 
 def test_every_attempt_is_recorded_with_its_tokens_and_wait() -> None:

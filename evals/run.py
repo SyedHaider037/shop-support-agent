@@ -6,14 +6,15 @@ Exit codes: 0 done, 1 regression pass rate under --fail-under,
 
 import argparse
 import dataclasses
+import os
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.config import create_groq_client, load_settings
+from app.config import Settings, create_groq_client, load_settings
 from evals.customer_sim import SimulatedCustomer
 from evals.metrics import markdown_summary, suite_pass_rate, task_stats
 from evals.models import TASKS_PATH, Task, load_tasks
@@ -97,10 +98,18 @@ def user_factory(sim: Pacer | None, sim_model: str) -> UserFactory:
     return make
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_settings(args: argparse.Namespace, env: Mapping[str, str]) -> Settings:
+    """Production settings from `env`, with the eval's model and low reasoning effort."""
+    return dataclasses.replace(load_settings(env), model=args.model, reasoning_effort="low")
+
+
+def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     args = parse_args(argv)
-    load_dotenv(ROOT / ".env")
-    settings = dataclasses.replace(load_settings(), model=args.model, reasoning_effort="low")
+    if env is None:
+        # Only the real command line reads .env; tests pass their own environment.
+        load_dotenv(ROOT / ".env")
+        env = os.environ
+    settings = build_settings(args, env)
     tasks = select(load_tasks(args.tasks_file), args.tasks, args.suite, args.category)
     done = finished(read_rows(args.out))
     todo = plan(tasks, args.trials, settings.model, done)

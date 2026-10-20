@@ -130,6 +130,7 @@ def converse(
             raise InfraError(result.error or "api_error", result.retry_after_s)
         if result.error:
             agent_errors.append(result.error)
+            outcome.agent_errors.append(result.error)
         outcome.model_calls += result.usage.model_calls
         outcome.tool_calls += [
             ToolCallRecord(

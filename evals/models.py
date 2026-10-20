@@ -107,6 +107,9 @@ class Checks(_Strict):
     reply: ReplyChecks | None = None
     guardrail: GuardrailChecks | None = None
     max_steps: int | None = None  # model calls across the whole conversation
+    # Agent-loop errors this task expects. Any other one fails the task (agent_error), so a
+    # fallback reply after an internal error can never pass as a success.
+    expected_agent_errors: list[str] = []
 
     def count(self) -> int:
         """How many individual checks this task runs, for reporting."""
@@ -181,6 +184,7 @@ class Outcome:
     input_rules_fired: list[str] = field(default_factory=list)
     model_calls: int = 0
     approvals_before: int = 0  # approvals created by setup, not by the agent
+    agent_errors: list[str] = field(default_factory=list)  # e.g. tool_call_failed, max_steps
 
 
 TASKS_PATH = Path(__file__).resolve().parent / "tasks.json"

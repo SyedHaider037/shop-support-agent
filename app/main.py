@@ -4,17 +4,20 @@ create_app() takes its dependencies as arguments so each test builds its own
 app with its own settings, fake client and store, and nothing leaks between tests.
 """
 
+import hmac
 from dataclasses import asdict
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from groq import Groq
 
 from app.agent.loop import API_ERRORS, BUSY_ERROR, BUSY_REPLY, run_agent
 from app.config import ConfigError, Settings, create_groq_client, load_settings
 from app.ratelimit import RateLimiter, client_ip, retry_after_header
-from app.schemas import ChatRequest, ChatResponse
-from app.store.store import Store
+from app.schemas import AdminApproval, ChatRequest, ChatResponse
+from app.store.models import PendingApproval
+from app.store.store import ApprovalAlreadyDecided, ApprovalNotFound, Store
+from app.trace.redact import mask_email, mask_emails
 
 UNAVAILABLE = "The assistant is temporarily unavailable. Please try again later."
 RATE_LIMITED = "Too many messages. Please wait a moment and try again."
@@ -52,6 +55,45 @@ def create_app(
                 detail=RATE_LIMITED,
                 headers={"Retry-After": retry_after_header(wait)},
             )
+
+    def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
+        # No token configured: behave as if the admin API does not exist.
+        if not settings.admin_token:
+            raise HTTPException(status_code=404, detail="Not Found")
+        # Constant-time compare so the token cannot be guessed byte by byte from timing.
+        given = (x_admin_token or "").encode()
+        if not hmac.compare_digest(given, settings.admin_token.encode()):
+            raise HTTPException(status_code=401, detail="Invalid admin token.")
+
+    def admin_view(approval: PendingApproval) -> AdminApproval:
+        return AdminApproval(
+            **approval.model_dump(exclude={"reason"}),
+            reason=mask_emails(approval.reason),
+            email=mask_email(shop.approval_email(approval.id)),
+        )
+
+    def decide(approval_id: str, approve: bool) -> AdminApproval:
+        try:
+            return admin_view(shop.decide_approval(approval_id, approve))
+        except ApprovalNotFound as exc:
+            raise HTTPException(status_code=404, detail="No such approval.") from exc
+        except ApprovalAlreadyDecided as exc:
+            raise HTTPException(
+                status_code=409, detail="This approval was already decided."
+            ) from exc
+
+    # Not behind the visitor rate limit, and not linked from any public page.
+    @app.get("/admin/approvals", dependencies=[Depends(require_admin)])
+    def list_approvals() -> list[AdminApproval]:
+        return [admin_view(a) for a in shop.list_approvals()]
+
+    @app.post("/admin/approvals/{approval_id}/approve", dependencies=[Depends(require_admin)])
+    def approve(approval_id: str) -> AdminApproval:
+        return decide(approval_id, approve=True)
+
+    @app.post("/admin/approvals/{approval_id}/reject", dependencies=[Depends(require_admin)])
+    def reject(approval_id: str) -> AdminApproval:
+        return decide(approval_id, approve=False)
 
     @app.get("/health")
     def health() -> dict[str, bool]:

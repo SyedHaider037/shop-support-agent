@@ -5,6 +5,7 @@ the whole history each time. These limits keep that untrusted history small
 and stop a client from injecting system or tool messages.
 """
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -50,6 +51,17 @@ class GuardrailEventOut(BaseModel):
     layer: str
     rule: str
     action: str
+
+
+class AdminApproval(BaseModel):
+    id: str
+    order_id: str
+    amount: float
+    reason: str
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+    email: str  # masked
 
 
 class ChatResponse(BaseModel):

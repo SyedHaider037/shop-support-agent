@@ -36,6 +36,14 @@ def _terms(text: str) -> set[str]:
     return {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words}
 
 
+class ApprovalNotFound(KeyError):
+    """No approval with that id."""
+
+
+class ApprovalAlreadyDecided(Exception):
+    """Approvals are final: a decision cannot be changed or repeated."""
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -135,6 +143,27 @@ class Store:
 
     def list_approvals(self) -> list[PendingApproval]:
         return [a.model_copy() for a in self._approvals.values()]
+
+    def approval_email(self, approval_id: str) -> str:
+        """The order owner's email, for masked display to an admin."""
+        approval = self._approvals[approval_id]
+        return self._orders[approval.order_id.upper()].email
+
+    def decide_approval(self, approval_id: str, approve: bool) -> PendingApproval:
+        """A human's decision. Only approving changes the order; either way it is final."""
+        approval = self._approvals.get(approval_id)
+        if approval is None:
+            raise ApprovalNotFound(approval_id)
+        if approval.status != "pending":
+            raise ApprovalAlreadyDecided(approval_id)
+        approval.status = "approved" if approve else "rejected"
+        approval.decided_at = self.now()
+        order = self._orders[approval.order_id.upper()]
+        if approve:
+            order.refund_status = "refunded"
+        action = "refund_approved" if approve else "refund_rejected"
+        self._log(action, approval.id, "admin", order.email)
+        return approval.model_copy()
 
     def audit_log(self) -> list[AuditEntry]:
         return [entry.model_copy() for entry in self._audit]

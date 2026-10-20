@@ -40,6 +40,8 @@ class Settings:
     max_retries: int = 1
     token_budget: int = 20_000
     rate_limit_per_minute: int = 10
+    # Unset means the admin endpoints do not exist (404). repr=False: never logged.
+    admin_token: str | None = field(default=None, repr=False)
 
     @property
     def uses_reasoning_effort(self) -> bool:
@@ -78,6 +80,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_retries=_number(env, "MAX_RETRIES", 1, 0, 5),
         token_budget=_number(env, "TOKEN_BUDGET", 20_000, 1_000, 1_000_000),
         rate_limit_per_minute=_number(env, "RATE_LIMIT_PER_MINUTE", 10, 1, 1_000),
+        admin_token=env.get("ADMIN_TOKEN", "").strip() or None,
     )
 
 

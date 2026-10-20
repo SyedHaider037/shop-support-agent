@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from typing import Any
 
 import pytest
@@ -8,10 +9,13 @@ from app.tools import dispatcher
 from app.tools.definitions import TOOLS, tool_schemas
 from app.tools.dispatcher import dispatch
 
+# The day the sample data was written for, so the expected dates below never drift.
+TODAY = date(2026, 10, 20)
+
 
 @pytest.fixture
 def store() -> Store:
-    return Store.fresh()
+    return Store.fresh(today=TODAY)
 
 
 def call(store: Store, tool: str, /, **arguments: Any) -> dict[str, Any]:

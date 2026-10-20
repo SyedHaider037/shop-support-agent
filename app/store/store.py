@@ -5,17 +5,17 @@ disk) and evals need a clean, isolated store for every trial.
 """
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from app.store.models import Lead, Order, Product
+from app.store.models import Lead, Order, Product, SampleOrder
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 _PRODUCTS = TypeAdapter(list[Product])
-_ORDERS = TypeAdapter(list[Order])
+_SAMPLE_ORDERS = TypeAdapter(list[SampleOrder])
 _WORD = re.compile(r"[a-z0-9]+")
 
 
@@ -34,15 +34,17 @@ class Store:
         self._leads: list[Lead] = []
 
     @classmethod
-    def from_files(cls, data_dir: Path = DATA_DIR) -> "Store":
+    def from_files(cls, data_dir: Path = DATA_DIR, today: date | None = None) -> "Store":
+        """Load the sample data, resolving order dates against `today` (default: the real today)."""
+        today = today or date.today()
         products = _PRODUCTS.validate_json((data_dir / "products.json").read_bytes())
-        orders = _ORDERS.validate_json((data_dir / "orders.json").read_bytes())
-        return cls(products, orders)
+        samples = _SAMPLE_ORDERS.validate_json((data_dir / "orders.json").read_bytes())
+        return cls(products, [sample.resolve(today) for sample in samples])
 
     @classmethod
-    def fresh(cls) -> "Store":
+    def fresh(cls, today: date | None = None) -> "Store":
         """A new store from the sample data that shares nothing with any other store."""
-        return cls.from_files()
+        return cls.from_files(today=today)
 
     def search_products(self, query: str, max_results: int = 3) -> list[Product]:
         """Rank products by how many query words appear in name, category or description."""

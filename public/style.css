@@ -189,10 +189,12 @@ code {
   border-radius: var(--radius);
 }
 
+/* better-layout: the gap between groups (messages, composer, samples) is at least
+   twice the gap inside a group, so the three groups read as three. */
 .chat {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 24px;
   padding: 16px;
 }
 
@@ -201,13 +203,22 @@ code {
 .messages {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
-  min-height: 160px;
+  min-height: 120px;
   max-height: 60vh;
   overflow-y: auto;
+}
+
+/* On a phone a scroll area inside the scrolling page hides the oldest messages
+   behind a second scroll edge; let the page be the only scroller. */
+@media (max-width: 899px) {
+  .messages {
+    max-height: none;
+    overflow-y: visible;
+  }
 }
 
 .msg {
@@ -398,6 +409,10 @@ code {
 
 /* --- samples ---------------------------------------------------------------- */
 
+.samples {
+  padding-top: 8px;
+}
+
 .samples h2 {
   margin: 0;
   font-size: var(--text-lg);
@@ -488,7 +503,7 @@ code {
 .trace__body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
 }
 
 .trace__empty {

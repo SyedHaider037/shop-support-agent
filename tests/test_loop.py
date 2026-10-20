@@ -1,0 +1,250 @@
+import json
+
+import pytest
+
+from app.agent.loop import API_ERROR_REPLY, HANDOFF_REPLY, run_agent, sounds_like_fake_check
+from app.config import Settings
+from app.store.store import Store
+from tests.fakes import (
+    FakeGroq,
+    connection_error,
+    rate_limit_error,
+    reply,
+    timeout_error,
+    tool_call,
+    tool_calls,
+)
+
+SETTINGS = Settings(groq_api_key="test-key", max_steps=5)
+ORDER_ARGS = {"order_id": "ORD-1001", "email": "jane.doe@example.com"}
+
+
+def ask(text: str) -> list[dict[str, str]]:
+    return [{"role": "user", "content": text}]
+
+
+def test_plain_reply() -> None:
+    client = FakeGroq(reply("Hello! How can I help?"))
+
+    result = run_agent(ask("hi"), Store.fresh(), client, SETTINGS)
+
+    assert result.reply == "Hello! How can I help?"
+    assert result.error is None
+    assert result.steps == []
+    assert result.usage.model_calls == 1
+    assert result.usage.total_tokens == 11
+
+
+def test_request_carries_system_prompt_tools_and_settings() -> None:
+    client = FakeGroq(reply("ok"))
+    history = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "Hello!"},
+        {"role": "user", "content": "thanks"},
+    ]
+
+    run_agent(history, Store.fresh(), client, SETTINGS)
+
+    [request] = client.requests
+    assert request["messages"][0]["role"] == "system"
+    assert "# Support policy" in request["messages"][0]["content"]
+    assert request["messages"][1:] == history
+    assert {t["function"]["name"] for t in request["tools"]} == {
+        "search_products",
+        "get_order_status",
+        "capture_lead",
+    }
+    assert request["model"] == SETTINGS.model
+    assert request["temperature"] == 0.2
+    assert request["tool_choice"] == "auto"
+
+
+def test_one_tool_call_then_reply() -> None:
+    client = FakeGroq(
+        tool_calls(tool_call("get_order_status", ORDER_ARGS)),
+        reply("Your order ORD-1001 was delivered on 2026-10-12."),
+    )
+
+    result = run_agent(ask("Where is ORD-1001?"), Store.fresh(), client, SETTINGS)
+
+    assert result.reply.startswith("Your order ORD-1001 was delivered")
+    assert result.error is None
+    [step] = result.steps
+    assert step.tool == "get_order_status"
+    assert step.result["ok"] is True
+    assert step.latency_ms >= 0
+    assert result.usage.model_calls == 2
+
+    # The tool result is fed back to the model, linked to the call id.
+    second = client.requests[1]["messages"]
+    assert second[-2]["role"] == "assistant"
+    assert second[-2]["tool_calls"][0]["id"] == "call_1"
+    assert second[-1]["role"] == "tool"
+    assert second[-1]["tool_call_id"] == "call_1"
+    assert json.loads(second[-1]["content"])["data"]["status"] == "delivered"
+
+
+def test_two_tool_calls_in_one_turn() -> None:
+    client = FakeGroq(
+        tool_calls(
+            tool_call("search_products", {"query": "wallet"}, call_id="a"),
+            tool_call("search_products", {"query": "belt"}, call_id="b"),
+        ),
+        reply("We have wallets and belts."),
+    )
+
+    result = run_agent(ask("wallets and belts?"), Store.fresh(), client, SETTINGS)
+
+    assert [s.arguments["query"] for s in result.steps] == ["wallet", "belt"]
+    tool_messages = [m for m in client.requests[1]["messages"] if m["role"] == "tool"]
+    assert [m["tool_call_id"] for m in tool_messages] == ["a", "b"]
+
+
+def test_tool_calls_across_two_model_turns() -> None:
+    client = FakeGroq(
+        tool_calls(tool_call("search_products", {"query": "wallet"})),
+        tool_calls(tool_call("get_order_status", ORDER_ARGS, call_id="call_2")),
+        reply("Done."),
+    )
+
+    result = run_agent(ask("wallet, and my order"), Store.fresh(), client, SETTINGS)
+
+    assert [s.tool for s in result.steps] == ["search_products", "get_order_status"]
+    assert result.usage.model_calls == 3
+
+
+def test_fake_check_retries_once_with_required_tool_choice() -> None:
+    client = FakeGroq(
+        reply("Let me check that order for you, one moment!"),
+        tool_calls(tool_call("get_order_status", ORDER_ARGS)),
+        reply("It was delivered."),
+    )
+
+    result = run_agent(ask("Where is ORD-1001?"), Store.fresh(), client, SETTINGS)
+
+    assert result.reply == "It was delivered."
+    assert [r["tool_choice"] for r in client.requests] == ["auto", "required", "auto"]
+    # The narrated reply is dropped, not sent back to the model as history.
+    assert all(
+        m["role"] != "assistant" or "tool_calls" in m for m in client.requests[1]["messages"]
+    )
+
+
+def test_fake_check_is_retried_only_once() -> None:
+    client = FakeGroq(reply("Let me check."), reply("Let me check again."))
+
+    result = run_agent(ask("status?"), Store.fresh(), client, SETTINGS)
+
+    assert result.reply == "Let me check again."
+    assert len(client.requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Let me check on that.", True),
+        ("One moment please", True),
+        ("I've checked and it shipped.", True),
+        ("Your order shipped yesterday.", False),
+        ("", False),
+    ],
+)
+def test_sounds_like_fake_check(text: str, expected: bool) -> None:
+    assert sounds_like_fake_check(text) is expected
+
+
+def test_max_steps_returns_handoff_reply() -> None:
+    settings = Settings(groq_api_key="test-key", max_steps=3)
+    script = [tool_calls(tool_call("search_products", {"query": "wallet"})) for _ in range(3)]
+    client = FakeGroq(*script)
+
+    result = run_agent(ask("wallet"), Store.fresh(), client, settings)
+
+    assert result.reply == HANDOFF_REPLY
+    assert result.error == "max_steps"
+    assert len(client.requests) == 3
+    assert len(result.steps) == 3
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (connection_error(), "api_error"),
+        (timeout_error(), "timeout"),
+        (rate_limit_error(), "rate_limited"),
+    ],
+)
+def test_api_failures_return_safe_reply(error: Exception, code: str) -> None:
+    result = run_agent(ask("hi"), Store.fresh(), FakeGroq(error), SETTINGS)
+
+    assert result.reply == API_ERROR_REPLY
+    assert result.error == code
+
+
+def test_api_failure_after_a_tool_call_keeps_the_steps() -> None:
+    client = FakeGroq(
+        tool_calls(tool_call("search_products", {"query": "wallet"})), timeout_error()
+    )
+
+    result = run_agent(ask("wallet"), Store.fresh(), client, SETTINGS)
+
+    assert result.error == "timeout"
+    assert len(result.steps) == 1
+
+
+def test_malformed_tool_arguments_are_reported_to_the_model() -> None:
+    client = FakeGroq(
+        tool_calls(tool_call("search_products", '{"query": "wallet"')),
+        reply("Sorry, could you rephrase?"),
+    )
+
+    result = run_agent(ask("wallet"), Store.fresh(), client, SETTINGS)
+
+    assert result.error is None
+    [step] = result.steps
+    assert step.result == {"ok": False, "error": "invalid_json"}
+    assert step.arguments == '{"query": "wallet"'
+    assert json.loads(client.requests[1]["messages"][-1]["content"])["error"] == "invalid_json"
+
+
+def test_empty_reply_falls_back_to_handoff() -> None:
+    result = run_agent(ask("hi"), Store.fresh(), FakeGroq(reply(None)), SETTINGS)
+
+    assert result.reply == HANDOFF_REPLY
+    assert result.error == "empty_reply"
+
+
+def test_emails_are_masked_in_recorded_steps() -> None:
+    client = FakeGroq(tool_calls(tool_call("get_order_status", ORDER_ARGS)), reply("ok"))
+
+    result = run_agent(ask("ORD-1001"), Store.fresh(), client, SETTINGS)
+
+    assert result.steps[0].arguments["email"] == "j***@example.com"
+    assert "jane.doe@example.com" not in json.dumps([s.arguments for s in result.steps])
+    # The real tool still received the full email.
+    assert result.steps[0].result["ok"] is True
+
+
+def test_input_messages_are_not_mutated() -> None:
+    messages = ask("hi")
+    snapshot = [dict(m) for m in messages]
+
+    run_agent(messages, Store.fresh(), FakeGroq(reply("hello")), SETTINGS)
+
+    assert messages == snapshot
+
+
+def test_two_conversations_with_fresh_stores_do_not_share_state() -> None:
+    lead_args = {"name": "Test User", "email": "test@example.com", "message": "Call me"}
+    store_a, store_b = Store.fresh(), Store.fresh()
+
+    run_agent(
+        ask("Save my details"),
+        store_a,
+        FakeGroq(tool_calls(tool_call("capture_lead", lead_args)), reply("Saved.")),
+        SETTINGS,
+    )
+    run_agent(ask("hi"), store_b, FakeGroq(reply("Hello!")), SETTINGS)
+
+    assert len(store_a.list_leads()) == 1
+    assert store_b.list_leads() == []

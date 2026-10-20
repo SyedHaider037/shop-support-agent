@@ -145,3 +145,18 @@ def test_markdown_summary_lists_groups_and_failed_tasks() -> None:
 
 def test_markdown_summary_with_no_failures() -> None:
     assert "None." in markdown_summary([row("a", 1, "pass")], k=1)
+
+
+def test_summary_lists_infra_error_reasons() -> None:
+    rows = [
+        row("a", 1, "infra_error", error="model_busy"),
+        row("a", 2, "infra_error", error="model_busy"),
+        row("b", 1, "infra_error", error="sim_invented_fact"),
+        row("c", 1, "pass"),
+    ]
+
+    text = markdown_summary(rows, k=1)
+
+    assert "### Infra errors (not counted as pass or fail)" in text
+    assert "- `a`: model_busy x2" in text
+    assert "- `b`: sim_invented_fact x1" in text

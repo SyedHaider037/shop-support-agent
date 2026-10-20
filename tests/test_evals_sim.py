@@ -184,3 +184,45 @@ def test_simulator_failure_is_infra_error_not_fail() -> None:
     assert row["status"] == "infra_error"
     assert row["error"] == "sim_error"
     assert h.agent_fake.requests == []
+
+
+# --- fairness: the simulator may not invent facts -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "invented"),
+    [
+        ("My order is ORD-1002 and my email is sam.lee@example.com", []),
+        ("It's ord\u20111002, SAM.LEE@example.com", []),
+        ("Try ORD-1005 instead", ["ORD-1005"]),
+        ("My email is sam@example.com", ["sam@example.com"]),
+        ("Call me on 555-123-4567", ["555-123-4567"]),
+        ("It shipped on 2026-10-16, right?", []),  # a date the agent said is not a fact claim
+    ],
+)
+def test_invented_facts(text: str, invented: list[str]) -> None:
+    from evals.customer_sim import invented_facts
+
+    assert invented_facts(text, SPEC.facts) == invented
+
+
+def test_an_invented_fact_is_an_infra_error() -> None:
+    sim = SimulatedCustomer(SPEC, FakeGroq(reply("Oh, it's ORD-1006 actually.")), "m")
+
+    with pytest.raises(InfraError) as caught:
+        sim.next_message([])
+
+    assert caught.value.code == "sim_invented_fact"
+
+
+def test_invented_fact_run_is_infra_error_and_shown_in_the_summary() -> None:
+    from evals.metrics import markdown_summary
+
+    h = Harness(agent_script=[], sim_script=[reply("My email is fake.person@example.com")] * 3)
+
+    row = h.run(sim_task())
+
+    assert (row["status"], row["error"]) == ("infra_error", "sim_invented_fact")
+    assert h.agent_fake.requests == []
+    summary = markdown_summary([row], k=1)
+    assert "`order-sim-01`: sim_invented_fact x1" in summary

@@ -21,6 +21,7 @@ class TaskStats:
     graded: int = 0  # trials that ended in pass or fail
     passes: int = 0
     infra_errors: int = 0
+    infra_reasons: list[str] = field(default_factory=list)  # e.g. model_busy, sim_invented_fact
     failed_checks: list[str] = field(default_factory=list)
     failure_layers: list[str] = field(default_factory=list)
 
@@ -73,6 +74,7 @@ def task_stats(rows: Iterable[Row]) -> list[TaskStats]:
         )
         if row["status"] == "infra_error":
             s.infra_errors += 1
+            s.infra_reasons.append(row.get("error") or "unknown")
             continue
         s.graded += 1
         if row["status"] == "pass":
@@ -150,5 +152,15 @@ def markdown_summary(rows: Iterable[Row], k: int) -> str:
                 f"- `{s.task_id}` ({s.category}, {s.suite}): passed {s.passes}/{s.graded}; "
                 f"failed checks: {checks}; first failure layer (hint): {layers}"
             )
+        # Not agent failures, but shown so a run hiding many of them is obvious.
+        infra = [s for s in mine if s.infra_errors]
+        out += ["", "### Infra errors (not counted as pass or fail)", ""]
+        if not infra:
+            out.append("None.")
+        for s in sorted(infra, key=lambda s: s.task_id):
+            reasons = ", ".join(
+                f"{r} x{s.infra_reasons.count(r)}" for r in sorted(set(s.infra_reasons))
+            )
+            out.append(f"- `{s.task_id}`: {reasons}")
         out.append("")
     return "\n".join(out)

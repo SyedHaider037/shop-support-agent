@@ -51,3 +51,60 @@ def test_mask_email() -> None:
         "a": ["x***@example.com", 3],
         "b": None,
     }
+
+
+def test_phase_3_defaults() -> None:
+    settings = load_settings({})
+
+    assert settings.reasoning_effort == "low"
+    assert settings.request_deadline_s == 40.0
+    assert settings.max_retries == 1
+    assert settings.token_budget == 20_000
+    assert settings.rate_limit_per_minute == 10
+
+
+def test_reads_phase_3_values_from_env() -> None:
+    env = {
+        "REASONING_EFFORT": "Medium",
+        "REQUEST_DEADLINE_S": "30",
+        "MAX_RETRIES": "0",
+        "TOKEN_BUDGET": "5000",
+        "RATE_LIMIT_PER_MINUTE": "3",
+    }
+
+    settings = load_settings(env)
+
+    assert settings.reasoning_effort == "medium"
+    assert settings.request_deadline_s == 30.0
+    assert settings.max_retries == 0
+    assert settings.token_budget == 5000
+    assert settings.rate_limit_per_minute == 3
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"REASONING_EFFORT": "extreme"},
+        {"REQUEST_DEADLINE_S": "0"},
+        {"MAX_RETRIES": "-1"},
+        {"MAX_RETRIES": "1.5"},
+        {"TOKEN_BUDGET": "10"},
+        {"RATE_LIMIT_PER_MINUTE": "0"},
+    ],
+)
+def test_invalid_phase_3_values_raise_config_error(env: dict[str, str]) -> None:
+    with pytest.raises(ConfigError):
+        load_settings(env)
+
+
+def test_client_uses_configured_retries() -> None:
+    assert create_groq_client(Settings(groq_api_key="test-key", max_retries=0)).max_retries == 0
+    assert create_groq_client(Settings(groq_api_key="test-key")).max_retries == 1
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [("openai/gpt-oss-120b", True), ("openai/gpt-oss-20b", True), ("qwen/qwen3.8-27b", False)],
+)
+def test_reasoning_effort_applies_only_to_gpt_oss(model: str, expected: bool) -> None:
+    assert Settings(model=model).uses_reasoning_effort is expected

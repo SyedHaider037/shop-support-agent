@@ -10,6 +10,8 @@
   --border: #d5dae1;
   --accent: #1f5fbf;
   --accent-text: #ffffff;
+  --accent-hover: #194f9f; /* darker, so text contrast only goes up */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* strong ease-out for UI feedback */
   /* better-colors: one colour, one meaning. The accent marks what is interactive, so the
      user's own (static) bubble is neutral and the pending state has its own hue. */
   --user-bg: #2e3238;
@@ -46,6 +48,7 @@
     --border: #343c47;
     --accent: #6ea8ff;
     --accent-text: #0b1220;
+    --accent-hover: #8fbcff;
     --user-bg: #3b3f45;
     --user-text: #ffffff;
     --banner-bg: #3a2f10;
@@ -266,6 +269,18 @@ code {
 .msg--assistant.is-clickable {
   cursor: pointer;
   border: 2px solid transparent;
+  transition: border-color 160ms var(--ease-out);
+}
+
+/* A reply that opens its trace shows it can be picked before it is picked. */
+.msg--assistant.is-clickable:focus-visible {
+  border-color: var(--border);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .msg--assistant.is-clickable:hover {
+    border-color: var(--border);
+  }
 }
 
 .msg--assistant.is-selected {
@@ -323,6 +338,17 @@ code {
 @media (prefers-reduced-motion: reduce) {
   .typing__dot {
     animation: none;
+  }
+
+  .button,
+  .chip,
+  .msg--assistant.is-clickable {
+    transition: none;
+  }
+
+  .button:not(:disabled):active,
+  .chip:active {
+    transform: none;
   }
 }
 
@@ -389,6 +415,26 @@ code {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+/* Press feedback: a small scale-down (never below 0.96) so the click feels received. */
+.button:not(:disabled):active,
+.chip:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .button--primary:not(:disabled):hover {
+    background: var(--accent-hover);
+  }
+
+  .button--secondary:not(:disabled):hover {
+    border-color: var(--accent);
+  }
 }
 
 .button--primary {
@@ -441,10 +487,15 @@ code {
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  transition:
+    transform 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
 }
 
-.chip:hover {
-  border-color: var(--accent);
+@media (hover: hover) and (pointer: fine) {
+  .chip:hover {
+    border-color: var(--accent);
+  }
 }
 
 .sample-orders {

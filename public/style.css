@@ -373,6 +373,19 @@ code {
   color: var(--status-text);
 }
 
+/* Running cost of this chat: a quiet line, numbers that do not jump as they change. */
+.totals {
+  margin: -12px 0 0; /* sits with the messages, not as a group of its own */
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.totals[hidden] {
+  display: none;
+}
+
 /* --- composer --------------------------------------------------------------- */
 
 .composer {

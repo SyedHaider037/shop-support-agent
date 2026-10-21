@@ -15,6 +15,8 @@ const {
   stepSentence,
   TOOL_SENTENCES,
   stepShares,
+  sessionTotals,
+  formatTotals,
 } = require("../../public/app.js");
 
 const TOOLS_DIR = path.join(__dirname, "..", "..", "app", "tools");
@@ -158,4 +160,31 @@ test("missing or zero latencies split the bar evenly instead of dividing by zero
   ]);
   assert.deepEqual(stepShares([undefined, 300])[0], { percent: 0, width: 3 });
   assert.deepEqual(stepShares([]), []);
+});
+
+test("session totals add up requests, tokens and cost", () => {
+  const totals = sessionTotals([
+    { tokens: { total: 3010 }, estimated_cost_usd: 0.000496 },
+    { tokens: { total: 2789 }, estimated_cost_usd: 0.000471 },
+    { tokens: { total: 0 }, estimated_cost_usd: null }, // refused before any model call
+  ]);
+  assert.equal(totals.requests, 3);
+  assert.equal(totals.tokens, 5799);
+  assert.ok(Math.abs(totals.cost - 0.000967) < 1e-12);
+  assert.equal(
+    formatTotals(totals),
+    "This chat: 3 requests, 5,799 tokens, about $0.00097 (estimated at list prices)",
+  );
+});
+
+test("the totals line is empty for a new chat and singular for one request", () => {
+  assert.equal(formatTotals(sessionTotals([])), "");
+  assert.equal(
+    formatTotals(sessionTotals([{ tokens: { total: 1200 }, estimated_cost_usd: 0.0123 }])),
+    "This chat: 1 request, 1,200 tokens, about $0.0123 (estimated at list prices)",
+  );
+  assert.equal(
+    formatTotals(sessionTotals([{ tokens: { total: 10 } }])),
+    "This chat: 1 request, 10 tokens, cost not available for this model",
+  );
 });

@@ -120,6 +120,31 @@ function isNearEnd(scrollHeight, scrollTop, clientHeight, slack = 48) {
   return scrollHeight - (scrollTop + clientHeight) <= slack;
 }
 
+/** Requests, tokens and estimated cost summed over the traces of one chat. */
+function sessionTotals(traces) {
+  const totals = { requests: 0, tokens: 0, cost: null };
+  for (const trace of traces || []) {
+    totals.requests += 1;
+    const tokens = Number(trace && trace.tokens && trace.tokens.total);
+    if (Number.isFinite(tokens)) totals.tokens += tokens;
+    const cost = trace && trace.estimated_cost_usd;
+    if (typeof cost === "number" && Number.isFinite(cost)) totals.cost = (totals.cost || 0) + cost;
+  }
+  return totals;
+}
+
+/** The running line under the chat, or "" while the chat is empty. */
+function formatTotals(totals) {
+  if (!totals || !totals.requests) return "";
+  const requests = `${totals.requests} ${totals.requests === 1 ? "request" : "requests"}`;
+  const tokens = `${totals.tokens.toLocaleString("en")} tokens`;
+  const cost =
+    totals.cost === null
+      ? "cost not available for this model"
+      : `about $${totals.cost.toFixed(totals.cost < 0.01 ? 5 : 4)} (estimated at list prices)`;
+  return `This chat: ${requests}, ${tokens}, ${cost}`;
+}
+
 /* ---------- page ----------------------------------------------------------------- */
 
 function startPage() {
@@ -128,6 +153,7 @@ function startPage() {
     messages: $("messages"),
     typing: $("typing"),
     status: $("status"),
+    totals: $("totals"),
     form: $("chat-form"),
     input: $("message"),
     counter: $("counter"),
@@ -185,6 +211,12 @@ function startPage() {
 
   function updateSend() {
     ui.send.disabled = state.busy || Date.now() < state.waitUntil;
+  }
+
+  function updateTotals() {
+    const text = formatTotals(sessionTotals(state.replies.map((reply) => reply.trace)));
+    ui.totals.textContent = text;
+    ui.totals.hidden = !text;
   }
 
   function showStatus(text) {
@@ -272,6 +304,7 @@ function startPage() {
 
     ui.messages.appendChild(li);
     state.replies.push({ node: li, trace: data.trace || {}, steps: data.steps || [], events });
+    updateTotals();
     selectReply(index);
     reveal(li, follow);
   }
@@ -382,6 +415,7 @@ function startPage() {
     state.history = [];
     state.replies = [];
     state.selected = -1;
+    updateTotals();
     setBusy(false);
     const intro = ui.messages.querySelector(".msg--intro");
     ui.messages.replaceChildren();
@@ -673,5 +707,7 @@ if (typeof module !== "undefined") {
     stepSentence,
     TOOL_SENTENCES,
     stepShares,
+    sessionTotals,
+    formatTotals,
   };
 }

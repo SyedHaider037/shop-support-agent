@@ -79,6 +79,17 @@ function appendSegments(parent, segments) {
   }
 }
 
+/**
+ * "You" / "Assistant" at the top of a message. A screen reader hears it once, as
+ * "Assistant: ..." (the colon is for speech only), and it is plain text, so the live
+ * region announces each new message once, with no extra hint attached.
+ */
+function roleLabel(role) {
+  const label = el("span", "msg__role", role);
+  label.appendChild(el("span", "visually-hidden", ":"));
+  return label;
+}
+
 function renderReply(text) {
   const fragment = document.createDocumentFragment();
   for (const block of parseReply(text)) {
@@ -233,7 +244,9 @@ function startPage() {
   }
 
   function addUserMessage(text) {
-    const li = el("li", "msg msg--user", text); // textContent: user text is never HTML
+    const li = el("li", "msg msg--user");
+    li.appendChild(roleLabel("You"));
+    li.appendChild(el("span", "msg__text", text)); // textContent: user text is never HTML
     ui.messages.appendChild(li);
     reveal(li, true); // the reader just sent it
     return li;
@@ -275,7 +288,10 @@ function startPage() {
     const index = state.replies.length;
     const li = el("li", "msg msg--assistant is-clickable");
     li.tabIndex = 0;
-    li.setAttribute("aria-label", "Assistant reply. Press Enter to show its trace.");
+    // The key hint is a description, read on focus; an aria-label here would replace the
+    // reply text for screen readers, and inside the live region it would be announced too.
+    li.setAttribute("aria-describedby", "reply-hint");
+    li.appendChild(roleLabel("Assistant"));
     li.appendChild(renderReply(data.reply));
 
     const events = Array.isArray(data.guardrail_events) ? data.guardrail_events : [];

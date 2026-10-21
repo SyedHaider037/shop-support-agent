@@ -251,7 +251,24 @@ code {
   align-self: flex-end;
   background: var(--user-bg);
   color: var(--user-text);
-  white-space: pre-wrap;
+}
+
+.msg__text {
+  white-space: pre-wrap; /* keep the line breaks the user typed */
+}
+
+/* Who is speaking, in words: a small label above the text. */
+.msg__role {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.msg--user .msg__role {
+  color: var(--user-text);
 }
 
 /* A message the server never received (rate limit, outage): its text goes back to the box. */

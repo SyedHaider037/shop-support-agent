@@ -420,12 +420,36 @@ function startPage() {
 
 /* ---------- trace panel ------------------------------------------------------------ */
 
-const RISK_HELP = "Risk: low reads data, medium saves contact details, high asks for a refund.";
+/**
+ * What the guardrails, retries and error code say for one trace, as plain strings.
+ * `quiet` lists the checks with nothing to report; `line` sums them up in one sentence.
+ */
+function traceChecks(trace) {
+  const t = trace || {};
+  const guardrails = (Array.isArray(t.guardrail_events) ? t.guardrail_events : []).map(
+    (e) => `${e.layer} · ${e.rule} · ${e.action}`,
+  );
+  const retries = (Array.isArray(t.retries) ? t.retries : []).map((r) => `${r.reason}, waited ${r.wait_s} s`);
+  if (t.forced_retry_reason) retries.push(`forced a tool call: ${t.forced_retry_reason}`);
+  if (t.recovered_error) retries.push(`recovered from: ${t.recovered_error}`);
+  const error = t.error || null;
 
-function section(container, title, explanation) {
+  const quiet = [];
+  if (!guardrails.length) quiet.push("no guardrails fired");
+  if (!retries.length) quiet.push("no retries");
+  if (!error) quiet.push("no errors");
+  return {
+    guardrails,
+    retries,
+    error,
+    allQuiet: quiet.length === 3,
+    line: quiet.length ? `Checks: ${quiet.join(", ")}.` : null,
+  };
+}
+
+function section(container, title) {
   const wrap = el("section", "trace__section");
   wrap.appendChild(el("h3", null, title));
-  wrap.appendChild(el("p", "hint", explanation));
   container.appendChild(wrap);
   return wrap;
 }
@@ -490,11 +514,7 @@ function renderTrace(container, reply) {
     container.appendChild(el("p", "badge badge--pending", "Pending human approval: not approved yet"));
   }
 
-  section(
-    container,
-    "Summary",
-    "Latency is the whole request; tokens are what the model read and wrote; cost uses list prices.",
-  ).appendChild(
+  section(container, "Summary").appendChild(
     factList([
       ["Model", formatValue(trace.model)],
       ["Reasoning effort", formatValue(trace.reasoning_effort)],
@@ -505,11 +525,7 @@ function renderTrace(container, reply) {
     ]),
   );
 
-  const stepsBox = section(
-    container,
-    "Steps",
-    `Each step is one model call; its latency includes any retries. ${RISK_HELP}`,
-  );
+  const stepsBox = section(container, "Steps");
   if (!steps.length) {
     const blocked = (trace.guardrail_events || []).some((e) => e.layer === "input");
     stepsBox.appendChild(
@@ -531,33 +547,12 @@ function renderTrace(container, reply) {
     stepsBox.appendChild(box);
   }
 
-  const events = Array.isArray(trace.guardrail_events) ? trace.guardrail_events : [];
-  section(
-    container,
-    "Guardrails",
-    "Input checks run before the model; output checks run on the final reply.",
-  ).appendChild(
-    events.length
-      ? plainList(events.map((e) => `${e.layer} · ${e.rule} · ${e.action}`))
-      : el("p", "trace__empty", "None fired."),
-  );
-
-  const retryLines = (Array.isArray(trace.retries) ? trace.retries : []).map(
-    (r) => `${r.reason}, waited ${r.wait_s} s`,
-  );
-  if (trace.forced_retry_reason) retryLines.push(`forced a tool call: ${trace.forced_retry_reason}`);
-  if (trace.recovered_error) retryLines.push(`recovered from: ${trace.recovered_error}`);
-  section(
-    container,
-    "Retries and waits",
-    "Calls repeated after a rate limit, a server error or a malformed tool call.",
-  ).appendChild(retryLines.length ? plainList(retryLines) : el("p", "trace__empty", "None."));
-
-  section(
-    container,
-    "Error code",
-    "Set when the agent stopped early, e.g. a step limit or a refused input.",
-  ).appendChild(el("p", trace.error ? "badge badge--error" : "trace__empty", trace.error || "None."));
+  // Only what happened gets a section; everything quiet is said in one line.
+  const checks = traceChecks(trace);
+  if (checks.guardrails.length) section(container, "Guardrails").appendChild(plainList(checks.guardrails));
+  if (checks.retries.length) section(container, "Retries and waits").appendChild(plainList(checks.retries));
+  if (checks.error) section(container, "Error code").appendChild(el("p", "badge badge--error", checks.error));
+  if (checks.line) container.appendChild(el("p", "trace__checks", checks.line));
 }
 
 /* ---------- start ------------------------------------------------------------------ */
@@ -568,4 +563,4 @@ if (typeof document !== "undefined") {
 }
 
 // Lets `node --test` check the pure formatter without a browser; ignored by the page.
-if (typeof module !== "undefined") module.exports = { parseInline, parseReply, pendingApproval, isNearEnd };
+if (typeof module !== "undefined") module.exports = { parseInline, parseReply, pendingApproval, isNearEnd, traceChecks };

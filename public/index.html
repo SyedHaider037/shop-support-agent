@@ -87,6 +87,21 @@
         <div id="trace-body" class="trace__body">
           <p class="trace__empty">Send a message to see its trace.</p>
         </div>
+        <details class="glossary">
+          <summary>What do these mean?</summary>
+          <dl class="glossary__list">
+            <dt>Summary</dt>
+            <dd>Latency is the whole request. Tokens are what the model read and wrote. Cost is an estimate from list prices.</dd>
+            <dt>Steps</dt>
+            <dd>Each step is one model call; its latency includes any retries. Risk: low reads data, medium saves contact details, high asks for a refund.</dd>
+            <dt>Guardrails</dt>
+            <dd>Input checks run before the model; output checks run on the final reply.</dd>
+            <dt>Retries and waits</dt>
+            <dd>Calls repeated after a rate limit, a server error or a malformed tool call.</dd>
+            <dt>Error code</dt>
+            <dd>Set when the agent stopped early, for example at a step limit or after a refused input.</dd>
+          </dl>
+        </details>
       </details>
     </aside>
   </main>

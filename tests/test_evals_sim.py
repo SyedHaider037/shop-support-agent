@@ -271,3 +271,119 @@ def test_same_model_agent_and_simulator_share_one_pacer() -> None:
     assert sim is not None and agent.pacer is sim.pacer
     assert agent.stats is not sim.stats
     assert other_sim is not None and other_agent.pacer is not other_sim.pacer
+
+
+# --- a customer that ends while the agent waits for an answer (Phase 4E, P3) -------------
+
+
+@pytest.mark.parametrize(
+    ("text", "waits"),
+    [
+        ("Could you please provide your order ID and email?", True),
+        ("Would you like me to save your name and email so our team can contact you?", True),
+        ("Thanks! What's the reason?Sure, I'll pass it on.", True),
+        ("Your order has shipped. Is there anything else I can help you with?", False),
+        ("Your order has shipped.", False),
+    ],
+)
+def test_waits_for_answer(text: str, waits: bool) -> None:
+    from evals.runner import waits_for_answer
+
+    assert waits_for_answer(text) is waits
+
+
+def test_a_customer_ending_after_a_question_is_asked_again_and_continues() -> None:
+    h = Harness(
+        agent_script=[
+            reply("Sure, what's your order ID and email?"),
+            tool_calls(ORDER),
+            reply("Your order ORD-1002 has shipped."),
+        ],
+        sim_script=[
+            reply("Hi, where is my order?"),
+            reply(END),  # ends although the agent asked a question
+            reply("ORD-1002, sam.lee@example.com"),
+            reply(END),
+        ],
+    )
+
+    row = h.run(sim_task())
+
+    assert row["status"] == "pass", row["failed_checks"]
+    assert row["sim_early_end_retries"] == 1
+    assert sum(m["role"] == "user" for m in row["transcript"]) == 2
+
+
+def test_a_customer_that_keeps_ending_after_a_question_is_an_infra_error_not_a_fail() -> None:
+    h = Harness(
+        agent_script=[reply("Sure, what's your order ID and email?")],
+        sim_script=[reply("Hi, where is my order?"), reply(END), reply(END), reply(END)],
+    )
+
+    row = h.run(sim_task())
+
+    assert (row["status"], row["error"]) == ("infra_error", "sim_ended_early")
+    assert len(h.sim_fake.requests) == 4  # opening, then the end plus 2 retries of that turn
+    assert len(h.agent_fake.requests) == 1  # the whole trial is not run again
+    assert len(row["attempts"]) == 1
+
+
+def test_a_customer_whose_goal_is_reached_ends_without_retries() -> None:
+    h = Harness(
+        agent_script=[
+            reply("Sure, what's your order ID and email?"),
+            tool_calls(ORDER),
+            reply("Your order ORD-1002 has shipped. Is there anything else I can help with?"),
+        ],
+        sim_script=[
+            reply("Hi, where is my order?"),
+            reply("ORD-1002, sam.lee@example.com"),
+            reply(END),
+        ],
+    )
+
+    row = h.run(sim_task())
+
+    assert row["status"] == "pass", row["failed_checks"]
+    assert row["sim_early_end_retries"] == 0
+    assert len(h.sim_fake.requests) == 3
+
+
+def test_a_customer_that_answers_is_never_asked_again() -> None:
+    h = Harness(
+        agent_script=[
+            reply("What's your order ID and email?"),
+            tool_calls(ORDER),
+            reply("It has shipped."),
+        ],
+        sim_script=[
+            reply("Where is my order?"),
+            reply("ORD-1002, sam.lee@example.com"),
+            reply(END),
+        ],
+    )
+
+    row = h.run(sim_task())
+
+    assert row["sim_early_end_retries"] == 0
+    assert row["transcript"][2]["content"] == "ORD-1002, s***@example.com"
+
+
+def test_max_turns_still_ends_a_chat_whose_agent_keeps_asking() -> None:
+    h = Harness(
+        agent_script=[reply("Could you tell me more?") for _ in range(2)],
+        sim_script=[reply("Hello?") for _ in range(5)],
+    )
+
+    row = h.run(sim_task(customer={**SPEC.model_dump(), "max_turns": 2}))
+
+    assert row["status"] == "fail"  # graded on what happened, not an infra error
+    assert row["sim_early_end_retries"] == 0
+    assert len(h.sim_fake.requests) == 2
+
+
+def test_the_prompt_tells_the_customer_to_answer_questions_before_ending() -> None:
+    prompt = " ".join(system_prompt(SPEC).split())
+
+    assert "A question is never the end of the chat." in prompt
+    assert "Never end while the assistant is waiting for an answer from you." in prompt

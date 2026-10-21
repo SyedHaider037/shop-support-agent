@@ -7,6 +7,7 @@ nothing about the agent, so they are never counted as a pass or a fail.
 """
 
 import json
+import re
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
@@ -30,6 +31,17 @@ DAILY_LIMIT_S = 120.0
 DAILY_LIMIT_EXIT = 3
 INFRA_RETRIES = 2
 INFRA_WAIT_S = 10.0
+# A simulated customer that ends while the agent is waiting for an answer has stopped
+# testing the agent. Its turn is asked again this many times, then the run is an infra error.
+EARLY_END_RETRIES = 2
+# Infra errors that a fresh attempt of the whole trial would not fix: recorded at once.
+NOT_RETRIED = frozenset({"sim_ended_early"})
+# A closing "Anything else I can help with?" does not wait for an answer.
+_COURTESY = re.compile(
+    r"\b(?:anything else|any other (?:questions?|way)|something else|further "
+    r"(?:help|assistance|questions?)|help (?:you )?with anything)\b",
+    re.IGNORECASE,
+)
 
 
 class InfraError(Exception):
@@ -60,6 +72,12 @@ class ScriptedUser:
 UserFactory = Callable[[Task], UserSide]
 
 
+def waits_for_answer(agent_text: str) -> bool:
+    """Did the agent's message ask the customer something it needs answered?"""
+    questions = re.findall(r"[^.?!]*\?", agent_text)
+    return any(not _COURTESY.search(question) for question in questions)
+
+
 def scripted_only(task: Task) -> UserSide:
     if task.customer is not None:
         raise InfraError("no_simulator")
@@ -85,6 +103,8 @@ class Conversation:
     # Per agent reply: its text before the output guardrails (masked), or None if unchanged.
     replies_before_guardrails: list[str | None]
     sim_retries: int  # simulator calls retried after a stray tool call (not infra attempts)
+    # Simulator turns asked again because it ended while the agent waited for an answer.
+    sim_early_end_retries: int = 0
 
 
 def converse(
@@ -109,8 +129,20 @@ def converse(
     retries: list[dict[str, Any]] = []
     forced: list[dict[str, Any]] = []
     before: list[str | None] = []
+    early_end_retries = 0
     for turn in range(1, max_turns + 1):
         text = user.next_message(history)
+        waiting = (
+            task.customer is not None and outcome.replies and waits_for_answer(outcome.replies[-1])
+        )
+        if text is None and waiting:
+            for _ in range(EARLY_END_RETRIES):
+                early_end_retries += 1
+                text = user.next_message(history)
+                if text is not None:
+                    break
+            else:
+                raise InfraError("sim_ended_early")
         if text is None:
             break
         history.append({"role": "user", "content": text})
@@ -151,7 +183,15 @@ def converse(
         raise InfraError("sim_empty_conversation")
     sim_retries = getattr(user, "retries", 0)
     return Conversation(
-        outcome, history, agent_errors, events, retries, forced, before, sim_retries
+        outcome,
+        history,
+        agent_errors,
+        events,
+        retries,
+        forced,
+        before,
+        sim_retries,
+        early_end_retries,
     )
 
 
@@ -265,6 +305,8 @@ def run_task(
                     f"{exc.code}: retry after {exc.retry_after_s:.0f}s"
                 ) from exc
             error = exc
+            if exc.code in NOT_RETRIED:
+                break
             continue
         latency_ms = round((clock() - started) * 1000)
         attempts.append(Attempt(attempt, "ok", None, wait, *_take(agent, sim)))
@@ -320,6 +362,7 @@ def _row(
         "forced_retries": convo.forced_retries,
         "replies_before_guardrails": convo.replies_before_guardrails,
         "sim_retries": convo.sim_retries,
+        "sim_early_end_retries": convo.sim_early_end_retries,
         # Sample emails are fake, but masked anyway so results never collect contact details.
         "final_reply": mask_emails(replies[-1]) if replies else None,
         "transcript": mask_emails(convo.transcript),

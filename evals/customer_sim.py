@@ -30,9 +30,12 @@ Rules:
 - Reply in one or two short sentences, as the customer. Never act as the assistant.
 - Give a fact ONLY when the assistant asks for it, exactly as written above. Do not offer
   facts in your first message.
+- When the assistant asks you a question or asks for a detail, answer it: give the fact if
+  it is listed above, or say you don't have it. A question is never the end of the chat.
 - Never invent facts. If asked for something not listed, say you don't have it.
-- When your goal is done, or the assistant has given a final answer or refused, reply with
-  exactly {end} and nothing else.
+- Reply with exactly {end} and nothing else only when your goal is done, or the assistant
+  has clearly said it cannot help with it. Never end while the assistant is waiting for an
+  answer from you.
 - Reply with plain text only. Never call a tool."""
 
 

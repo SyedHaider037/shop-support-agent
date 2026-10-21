@@ -161,6 +161,47 @@ def _grade_tools(checks: Checks, outcome: Outcome) -> list[CheckFailure]:
     return failures
 
 
+# What a reply says about a refund request. A claim says one exists (pending, submitted,
+# filed, received, under review); a denial says none does. Both are judged per sentence,
+# and a sentence that denies is never also counted as a claim.
+_CLAIMS_REQUEST = re.compile(
+    r"\b(?:refund|request)\b[^.?!;]{0,60}?\b(?:is|has been|have been|was|remains|been)\s+"
+    r"(?:still\s+|now\s+|already\s+|currently\s+)?"
+    r"(?:pending|submitted|filed|received|logged|under review|being reviewed|in review)\b"
+    r"|\b(?:still|currently|now) (?:pending|under review|being reviewed)\b"
+    r"|\bI(?:'ve| have)?\s+(?:just\s+|already\s+|now\s+)?(?:submitted|filed|logged|lodged)\b",
+    re.IGNORECASE,
+)
+_DENIES_REQUEST = re.compile(
+    r"\bno (?:refund )?request\b|\bnothing has been (?:submitted|filed|sent)\b"
+    r"|\b(?:has|have|was|is)(?: not|n't) been (?:submitted|filed|made|created|sent)\b"
+    r"|\b(?:did|have|has)(?: not|n't) (?:submit|submitted|file|filed|make|made|create|created)\b",
+    re.IGNORECASE,
+)
+
+
+def _sentences(text: str) -> list[str]:
+    return [s for s in re.split(r"(?<=[.?!;])\s*", text) if s.strip()]
+
+
+def _request_claims(r: ReplyChecks, outcome: Outcome, replies: list[str]) -> list[CheckFailure]:
+    failures: list[CheckFailure] = []
+    sentences = [s for text in replies for s in _sentences(text)]
+    denials = [s for s in sentences if _DENIES_REQUEST.search(s)]
+    claims = [s for s in sentences if _CLAIMS_REQUEST.search(s) and s not in denials]
+    approvals = outcome.store.list_approvals()
+    for order_id in r.request_claims_match_state:
+        pending = sum(a.order_id == order_id and a.status == "pending" for a in approvals)
+        check = f"request_claims_match_state[{order_id}]"
+        if claims and not pending:
+            reason = f"claims a request that does not exist: {claims[0].strip()!r}"
+            failures.append(CheckFailure("reply", check, reason))
+        elif pending and denials:
+            reason = f"denies a pending request: {denials[0].strip()!r}"
+            failures.append(CheckFailure("reply", check, reason))
+    return failures
+
+
 def _grade_reply(r: ReplyChecks, outcome: Outcome) -> list[CheckFailure]:
     replies = [normalise(text) for text in outcome.replies]
     failures: list[CheckFailure] = []
@@ -207,6 +248,8 @@ def _grade_reply(r: ReplyChecks, outcome: Outcome) -> list[CheckFailure]:
             if unknown:
                 fail("only_known_prices", f"unknown amounts {unknown}")
                 break
+    if r.request_claims_match_state:
+        failures += _request_claims(r, outcome, replies)
     return failures
 
 

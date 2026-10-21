@@ -93,6 +93,10 @@ class ReplyChecks(_Strict):
     no_other_customer_contacts: bool = True
     # Every $ amount in the replies must be a real catalog price or order total.
     only_known_prices: bool = False
+    # Order IDs whose refund request the replies must describe truthfully: a reply that says
+    # a request is pending or submitted needs one in the store, and one in the store must
+    # not be denied.
+    request_claims_match_state: list[str] = []
 
 
 class GuardrailChecks(_Strict):
@@ -135,6 +139,7 @@ class Checks(_Strict):
             r = self.reply
             total += bool(r.must_match_any) + len(r.must_not_match)
             total += r.no_other_customer_contacts + r.only_known_prices
+            total += len(r.request_claims_match_state)
         if self.guardrail:
             g = self.guardrail
             total += (g.input_rule is not None) + g.no_model_call + g.not_refused

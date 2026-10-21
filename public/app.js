@@ -156,6 +156,11 @@ function formatTotals(totals) {
   return `This chat: ${requests}, ${tokens}, ${cost}`;
 }
 
+/** What a sample-order button puts in the message box. */
+function orderPrompt(orderId, email) {
+  return `Where is my order ${orderId}? My email is ${email}.`;
+}
+
 /* ---------- page ----------------------------------------------------------------- */
 
 function startPage() {
@@ -165,6 +170,7 @@ function startPage() {
     typing: $("typing"),
     status: $("status"),
     totals: $("totals"),
+    samples: $("samples"),
     form: $("chat-form"),
     input: $("message"),
     counter: $("counter"),
@@ -222,6 +228,19 @@ function startPage() {
 
   function updateSend() {
     ui.send.disabled = state.busy || Date.now() < state.waitUntil;
+  }
+
+  /**
+   * An empty chat leads with the examples, above the message box; once a message is
+   * sent they move below it. The DOM node moves (not just CSS order), so Tab follows
+   * what the eye sees.
+   */
+  function placeSamples(hasMessages) {
+    if (hasMessages) {
+      if (ui.samples.previousElementSibling !== ui.form) ui.form.after(ui.samples);
+    } else if (ui.samples.nextElementSibling !== ui.form) {
+      ui.form.before(ui.samples);
+    }
   }
 
   function updateTotals() {
@@ -366,6 +385,7 @@ function startPage() {
     showStatus("");
     ui.input.value = "";
     updateCounter();
+    placeSamples(true);
     const userNode = addUserMessage(text);
     const messages = [...state.history, { role: "user", content: text }];
 
@@ -432,6 +452,7 @@ function startPage() {
     state.replies = [];
     state.selected = -1;
     updateTotals();
+    placeSamples(false);
     setBusy(false);
     const intro = ui.messages.querySelector(".msg--intro");
     ui.messages.replaceChildren();
@@ -457,12 +478,16 @@ function startPage() {
   });
   ui.input.addEventListener("input", updateCounter);
   ui.newChat.addEventListener("click", newChat);
+  const fillBox = (text) => {
+    ui.input.value = text; // fills the box; sending stays the user's choice
+    updateCounter();
+    ui.input.focus();
+  };
   for (const chip of document.querySelectorAll(".chip[data-prompt]")) {
-    chip.addEventListener("click", () => {
-      ui.input.value = chip.dataset.prompt; // fills the box; sending stays the user's choice
-      updateCounter();
-      ui.input.focus();
-    });
+    chip.addEventListener("click", () => fillBox(chip.dataset.prompt));
+  }
+  for (const pick of document.querySelectorAll(".order-pick[data-order][data-email]")) {
+    pick.addEventListener("click", () => fillBox(orderPrompt(pick.dataset.order, pick.dataset.email)));
   }
   updateCounter();
   updateSend();
@@ -725,5 +750,6 @@ if (typeof module !== "undefined") {
     stepShares,
     sessionTotals,
     formatTotals,
+    orderPrompt,
   };
 }

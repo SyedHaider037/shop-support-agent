@@ -17,6 +17,7 @@ const {
   stepShares,
   sessionTotals,
   formatTotals,
+  orderPrompt,
 } = require("../../public/app.js");
 
 const TOOLS_DIR = path.join(__dirname, "..", "..", "app", "tools");
@@ -187,4 +188,21 @@ test("the totals line is empty for a new chat and singular for one request", () 
     formatTotals(sessionTotals([{ tokens: { total: 10 } }])),
     "This chat: 1 request, 10 tokens, cost not available for this model",
   );
+});
+
+test("a sample order fills a status question and never more", () => {
+  assert.equal(
+    orderPrompt("ORD-1001", "jane.doe@example.com"),
+    "Where is my order ORD-1001? My email is jane.doe@example.com.",
+  );
+});
+
+test("the sample-order buttons match the fake orders in data/orders.json", () => {
+  const root = path.join(__dirname, "..", "..");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const orders = JSON.parse(fs.readFileSync(path.join(root, "data", "orders.json"), "utf8"));
+  const owners = Object.fromEntries(orders.map((o) => [o.order_id, o.email]));
+  const buttons = [...html.matchAll(/class="order-pick" data-order="([^"]+)" data-email="([^"]+)"/g)];
+  assert.equal(buttons.length, 3);
+  for (const [, id, email] of buttons) assert.equal(owners[id], email, id);
 });

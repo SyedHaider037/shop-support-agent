@@ -498,7 +498,7 @@ code {
 /* --- samples ---------------------------------------------------------------- */
 
 .samples {
-  padding-top: 8px;
+  padding-top: 4px;
 }
 
 .samples h2 {
@@ -552,9 +552,40 @@ code {
   font-weight: 600;
 }
 
-.sample-orders ul {
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
-  padding-left: 1.1em;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each sample order is a button that fills the box, like the chips above. */
+.order-pick {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+.order-pick:active {
+  transform: scale(0.98); /* a wide target moves less, or its edges travel too far */
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .order-pick:hover {
+    border-color: var(--accent);
+  }
 }
 
 /* --- trace panel ------------------------------------------------------------ */
@@ -825,13 +856,15 @@ code {
 @media (prefers-reduced-motion: reduce) {
   .button,
   .chip,
+  .order-pick,
   .msg--assistant,
   .msg--assistant.is-clickable {
     transition: none;
   }
 
   .button:not(:disabled):active,
-  .chip:active {
+  .chip:active,
+  .order-pick:active {
     transform: none;
   }
 }

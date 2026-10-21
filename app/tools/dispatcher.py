@@ -7,13 +7,14 @@ bug cannot take down the request.
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from app.store.store import Store
 from app.tools import handlers
+from app.tools.consent import has_consent
 from app.tools.definitions import TOOLS
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,18 @@ def _validation_detail(exc: ValidationError) -> list[str]:
     ]
 
 
-def dispatch(tool_name: str, raw_arguments: str | None, store: Store) -> ToolResult:
+# Tools that save a customer's personal details: they need the customer's own consent.
+NEEDS_CONSENT = frozenset({"capture_lead"})
+
+
+def dispatch(
+    tool_name: str,
+    raw_arguments: str | None,
+    store: Store,
+    conversation: Sequence[Mapping[str, str]] = (),
+) -> ToolResult:
+    """Run one tool call. `conversation` is the chat so far; without a customer message that
+    agrees, a tool in NEEDS_CONSENT is refused with consent_required."""
     spec = TOOLS.get(tool_name)
     handler = HANDLERS.get(tool_name)
     if spec is None or handler is None:
@@ -61,6 +73,8 @@ def dispatch(tool_name: str, raw_arguments: str | None, store: Store) -> ToolRes
         args: BaseModel = spec.args_model.model_validate(parsed)
     except ValidationError as exc:
         return _error("invalid_arguments", _validation_detail(exc))
+    if tool_name in NEEDS_CONSENT and not has_consent(conversation):
+        return _error("consent_required")
 
     try:
         return {"ok": True, "data": handler(args, store)}

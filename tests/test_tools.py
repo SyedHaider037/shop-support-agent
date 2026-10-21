@@ -18,8 +18,12 @@ def store() -> Store:
     return Store.fresh(today=TODAY)
 
 
+# A chat in which the customer has agreed to have their details saved (see consent.py).
+CONSENTED = [{"role": "user", "content": "Yes, please save my details."}]
+
+
 def call(store: Store, tool: str, /, **arguments: Any) -> dict[str, Any]:
-    return dispatch(tool, json.dumps(arguments), store)
+    return dispatch(tool, json.dumps(arguments), store, CONSENTED)
 
 
 # --- schemas and metadata ---------------------------------------------------

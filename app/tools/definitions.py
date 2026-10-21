@@ -75,7 +75,10 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             name="capture_lead",
-            description="Save contact details for human follow-up. Only after consent.",
+            description=(
+                "Save contact details for human follow-up. Only after the customer agrees; "
+                "otherwise it returns consent_required."
+            ),
             args_model=CaptureLeadArgs,
             risk="medium",
             read_only=False,

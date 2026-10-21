@@ -575,6 +575,8 @@ const ANY_TOOL_SENTENCES = {
   invalid_json: (tool) => `Called ${tool} with arguments that were not valid JSON, so the call was rejected.`,
   invalid_arguments: (tool) => `Called ${tool} with arguments that failed validation, so the call was rejected.`,
   tool_failed: (tool) => `Called ${tool}, but the tool failed with an internal error.`,
+  consent_required: (tool) =>
+    `Called ${tool}, but the customer had not agreed to have their details saved, so nothing was saved.`,
 };
 
 function callSentence(tool, code) {

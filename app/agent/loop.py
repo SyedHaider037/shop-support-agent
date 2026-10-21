@@ -313,7 +313,9 @@ def run_agent(
         conversation.append(_assistant_turn(message))
         for call in message.tool_calls:
             tool_started = time.perf_counter()  # real time, not the injectable request clock
-            tool_result = dispatch(call.function.name, call.function.arguments, store)
+            tool_result = dispatch(
+                call.function.name, call.function.arguments, store, checked.messages
+            )
             latency_ms = round((time.perf_counter() - tool_started) * 1000)
             step = Step(
                 tool=call.function.name,

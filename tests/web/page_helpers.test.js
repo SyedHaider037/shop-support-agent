@@ -14,6 +14,7 @@ const {
   resultPill,
   stepSentence,
   TOOL_SENTENCES,
+  stepShares,
 } = require("../../public/app.js");
 
 const TOOLS_DIR = path.join(__dirname, "..", "..", "app", "tools");
@@ -136,4 +137,25 @@ test("every tool and result code in app/tools has its own sentence", () => {
     const line = stepSentence({ tool_calls: [{ name: "get_order_status", result: code }] });
     assert.notEqual(line, genericFallback("get_order_status", code), code);
   }
+});
+
+test("bars show each step's share of model time, never under 3 percent", () => {
+  assert.deepEqual(stepShares([600, 400]), [
+    { percent: 60, width: 60 },
+    { percent: 40, width: 40 },
+  ]);
+  const [fast, slow] = stepShares([10, 990]);
+  assert.equal(fast.percent, 1);
+  assert.equal(fast.width, 3);
+  assert.equal(slow.percent, 99);
+  assert.deepEqual(stepShares([1200]), [{ percent: 100, width: 100 }]);
+});
+
+test("missing or zero latencies split the bar evenly instead of dividing by zero", () => {
+  assert.deepEqual(stepShares([0, 0]), [
+    { percent: 50, width: 50 },
+    { percent: 50, width: 50 },
+  ]);
+  assert.deepEqual(stepShares([undefined, 300])[0], { percent: 0, width: 3 });
+  assert.deepEqual(stepShares([]), []);
 });

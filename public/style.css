@@ -661,6 +661,38 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+/* Share of model time: a thin bar plus the same number in words. */
+.step__share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.step__bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.step__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--muted);
+}
+
+.step__share-text {
+  flex: none;
+  min-width: 13ch;
+  text-align: right;
+}
+
 .step__summary {
   margin: 0;
   text-wrap: pretty;

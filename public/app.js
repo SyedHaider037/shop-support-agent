@@ -518,6 +518,19 @@ function stepSentence(step) {
   return calls.map((call) => callSentence(call && call.name, call && call.result)).join(" ");
 }
 
+/**
+ * Each step's share of the model time (the sum of step latencies): `percent` for the text,
+ * `width` for the bar, never under 3 so a fast step still shows.
+ */
+function stepShares(latencies) {
+  const values = (latencies || []).map((ms) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Number(ms) : 0));
+  const total = values.reduce((sum, ms) => sum + ms, 0);
+  return values.map((ms) => {
+    const share = total > 0 ? (ms / total) * 100 : 100 / values.length;
+    return { percent: Math.round(share), width: Math.max(3, Math.round(share * 10) / 10) };
+  });
+}
+
 function section(container, title) {
   const wrap = el("section", "trace__section");
   wrap.appendChild(el("h3", null, title));
@@ -601,7 +614,8 @@ function renderTrace(container, reply) {
       el("p", "trace__empty", blocked ? "No model call: the input guardrail answered." : "No model call was made."),
     );
   }
-  for (const step of steps) {
+  const shares = stepShares(steps.map((step) => step.latency_ms));
+  steps.forEach((step, index) => {
     const box = el("div", "step");
     box.appendChild(
       el(
@@ -610,11 +624,21 @@ function renderTrace(container, reply) {
         `Step ${step.step}: ${step.latency_ms} ms, ${step.prompt_tokens} in / ${step.completion_tokens} out tokens`,
       ),
     );
+    // The bar is decoration; the same fact is in the words next to it.
+    const share = el("div", "step__share");
+    const bar = el("span", "step__bar");
+    bar.setAttribute("aria-hidden", "true");
+    const fill = el("span", "step__fill");
+    fill.style.width = `${shares[index].width}%`; // CSSOM, allowed by the CSP (no style attribute)
+    bar.appendChild(fill);
+    share.appendChild(bar);
+    share.appendChild(el("span", "step__share-text", `${shares[index].percent}% of model time`));
+    box.appendChild(share);
     box.appendChild(el("p", "step__summary", stepSentence(step)));
     const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
     for (const call of calls) box.appendChild(renderToolCall(call));
     stepsBox.appendChild(box);
-  }
+  });
 
   // Only what happened gets a section; everything quiet is said in one line.
   const checks = traceChecks(trace);
@@ -648,5 +672,6 @@ if (typeof module !== "undefined") {
     resultPill,
     stepSentence,
     TOOL_SENTENCES,
+    stepShares,
   };
 }

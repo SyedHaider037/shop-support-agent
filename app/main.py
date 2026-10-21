@@ -54,7 +54,8 @@ def create_app(
         load_dotenv()
         settings = load_settings()
 
-    app = FastAPI(title="shop-support-agent")
+    # No /docs, /redoc or /openapi.json: the schema would publish the admin paths.
+    app = FastAPI(title="shop-support-agent", docs_url=None, redoc_url=None, openapi_url=None)
     # One store per process. On serverless it is ephemeral: leads vanish on cold start.
     shop = store if store is not None else Store.fresh()
     groq_client = client

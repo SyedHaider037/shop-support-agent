@@ -1,3 +1,26 @@
+# An app, not a library: no [build-system], nothing is built or installed as a package.
+# The runtime dependencies mirror requirements.txt (tests/test_packaging.py checks it);
+# development tools stay in requirements-dev.txt.
+[project]
+name = "shop-support-agent"
+version = "0.1.0"
+description = "A customer support agent for a small online shop: FastAPI, Groq tool calling and guardrails."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.152.0",
+    "uvicorn[standard]==0.54.0",
+    "groq==1.7.0",
+    "pydantic==2.14.1",
+    "python-dotenv==1.2.4",
+]
+
+[tool.uv]
+package = false
+
+# Vercel finds the FastAPI instance here.
+[tool.vercel]
+entrypoint = "app.main:app"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

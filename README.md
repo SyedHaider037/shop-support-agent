@@ -7,7 +7,7 @@ A customer-support agent for a fake online shop that looks things up and files r
 
 **Live demo:** https://shop-support-agent-demo.vercel.app
 
-The shop, its products, orders and customers are all fake sample data. The demo runs on Groq's free limits, so it can answer "busy" when many people use it at once.
+The shop, its products, orders and customers are all fake sample data. The demo runs within Groq's rate limits, so it can answer "busy" when many people use it at once.
 
 ## Screenshots
 
@@ -135,7 +135,7 @@ The whole 4E re-run (60 rows) cost an estimated $0.0317. Every number, row and c
 
 ## Run it locally
 
-You need Python 3.12, Node.js (only for the chat page tests) and a free Groq API key from https://console.groq.com/keys.
+You need Python 3.12, Node.js (only for the chat page tests) and a Groq API key from https://console.groq.com/keys.
 
 **Windows PowerShell**
 
@@ -224,7 +224,7 @@ Everything the app remembers lives in the memory of one serverless instance: rat
 
 ## How this was built
 
-This project was built with Claude Code as an AI pair programmer. Most commits carry a `Co-authored-by: Claude` line. I wrote the specs for each phase and reviewed every phase's report before it was pushed. The evals, their failures and the fixes are recorded in the commit history and in [`evals/RESULTS.md`](evals/RESULTS.md), including the results that went down.
+This project was built with Claude Code as an AI pair programmer, and the phase plans and prompts were drafted with Claude's help. Claude Code helped write the code throughout. Many commits carry a `Co-authored-by: Claude` line, but some do not (the first setup commits and the chat page work), so that line does not mark every commit Claude helped with. I directed the project phase by phase, reviewed every phase's report before it was pushed, and made the calls on scope. The evals, their failures and the fixes are recorded in the commit history and in [`evals/RESULTS.md`](evals/RESULTS.md), including the results that went down.
 
 ## Repo layout
 

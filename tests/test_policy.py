@@ -92,3 +92,31 @@ def test_the_scripted_sentences_pass_the_output_checks() -> None:
     )
     for text in (PENDING_SENTENCE, scope):
         assert check_output(text, [], rules, write_succeeded=True).events == [], text
+
+
+def test_caring_for_the_goods_the_shop_sells_is_in_scope() -> None:
+    # Phase 4E, P2: after 1.1 listed topics, a leather-care question was refused as off
+    # topic. The principle is stated once; product facts still need a tool.
+    prompt = system_prompt()
+
+    assert "how to choose, use, care for or maintain the kinds of goods the shop sells" in prompt
+    assert "any fact about a specific product still needs a tool (2.1)" in prompt
+    assert "For anything else, do not answer it." in prompt  # off-topic is still refused
+
+
+def test_a_care_answer_passes_the_output_checks_unchanged() -> None:
+    from app.agent.loop import run_agent
+    from app.config import Settings
+    from app.store.store import Store
+    from tests.fakes import FakeGroq, reply
+
+    answer = (
+        "To care for a leather belt, wipe it with a soft dry cloth, keep it away from heat, "
+        "and use a leather conditioner every few months so it does not dry out."
+    )
+    messages = [{"role": "user", "content": "How do I keep a leather belt from cracking?"}]
+
+    result = run_agent(messages, Store.fresh(), FakeGroq(reply(answer)), Settings(groq_api_key="k"))
+
+    assert result.reply == answer
+    assert result.guardrail_events == []

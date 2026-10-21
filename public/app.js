@@ -468,6 +468,56 @@ function pill(info) {
   return el("span", `badge badge--label badge--${info.tone}`, info.text);
 }
 
+/*
+ * One plain sentence per tool result, from the codes in app/tools (handlers.py,
+ * refund_rules.py, dispatcher.py). Rule based: no model is involved, and no sentence
+ * repeats customer data, so nothing here can show more than the (masked) trace already does.
+ */
+const TOOL_SENTENCES = {
+  search_products: {
+    ok: "Searched the product catalogue.",
+  },
+  get_order_status: {
+    ok: "Looked up the order and found it.",
+    no_matching_order: "Looked up the order but found no match, so it asked the customer to double-check.",
+  },
+  request_refund: {
+    ok: "Sent the refund request to a human for approval; nothing is approved yet.",
+    no_matching_order: "Tried to request a refund, but the order number and email did not match.",
+    not_delivered: "Tried to request a refund, but the order has not been delivered yet.",
+    outside_window: "Tried to request a refund, but the order was delivered more than 30 days ago.",
+    already_requested: "Tried to request a refund, but one was already requested for this order.",
+    reason_required: "Tried to request a refund, but no reason was given.",
+  },
+  capture_lead: {
+    ok: "Saved the customer's contact details for the support team.",
+  },
+};
+
+// Codes the dispatcher can return for any tool.
+const ANY_TOOL_SENTENCES = {
+  unknown_tool: (tool) => `Asked for a tool called ${tool} that does not exist, so the call was rejected.`,
+  invalid_json: (tool) => `Called ${tool} with arguments that were not valid JSON, so the call was rejected.`,
+  invalid_arguments: (tool) => `Called ${tool} with arguments that failed validation, so the call was rejected.`,
+  tool_failed: (tool) => `Called ${tool}, but the tool failed with an internal error.`,
+};
+
+function callSentence(tool, code) {
+  const name = tool || "an unnamed tool";
+  const known = TOOL_SENTENCES[name] && TOOL_SENTENCES[name][code];
+  if (known) return known;
+  if (ANY_TOOL_SENTENCES[code]) return ANY_TOOL_SENTENCES[code](name);
+  if (code === "ok") return `Called ${name}.`;
+  return `Called ${name}, which returned "${codeWords(code)}".`;
+}
+
+/** One line for a model step: what its tool calls did, or that it wrote the reply. */
+function stepSentence(step) {
+  const calls = step && Array.isArray(step.tool_calls) ? step.tool_calls : [];
+  if (!calls.length) return "Wrote the reply.";
+  return calls.map((call) => callSentence(call && call.name, call && call.result)).join(" ");
+}
+
 function section(container, title) {
   const wrap = el("section", "trace__section");
   wrap.appendChild(el("h3", null, title));
@@ -560,8 +610,8 @@ function renderTrace(container, reply) {
         `Step ${step.step}: ${step.latency_ms} ms, ${step.prompt_tokens} in / ${step.completion_tokens} out tokens`,
       ),
     );
+    box.appendChild(el("p", "step__summary", stepSentence(step)));
     const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
-    if (!calls.length) box.appendChild(el("p", "hint", "No tool call: the model answered."));
     for (const call of calls) box.appendChild(renderToolCall(call));
     stepsBox.appendChild(box);
   }
@@ -596,5 +646,7 @@ if (typeof module !== "undefined") {
     codeWords,
     riskPill,
     resultPill,
+    stepSentence,
+    TOOL_SENTENCES,
   };
 }

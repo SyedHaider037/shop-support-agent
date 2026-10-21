@@ -4,7 +4,20 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { isNearEnd, traceChecks, codeWords, riskPill, resultPill } = require("../../public/app.js");
+const fs = require("node:fs");
+const path = require("node:path");
+const {
+  isNearEnd,
+  traceChecks,
+  codeWords,
+  riskPill,
+  resultPill,
+  stepSentence,
+  TOOL_SENTENCES,
+} = require("../../public/app.js");
+
+const TOOLS_DIR = path.join(__dirname, "..", "..", "app", "tools");
+const readTool = (name) => fs.readFileSync(path.join(TOOLS_DIR, name), "utf8");
 
 test("a reader at the end of the list is following along", () => {
   assert.equal(isNearEnd(1000, 600, 400), true);
@@ -60,4 +73,67 @@ test("pills carry their meaning in words", () => {
   assert.deepEqual(riskPill("surprise"), { text: "Risk: unknown", tone: "unknown" });
   assert.deepEqual(resultPill("ok"), { text: "Result: ok", tone: "ok" });
   assert.deepEqual(resultPill("no_matching_order"), { text: "Result: no matching order", tone: "error" });
+});
+
+test("a step without a tool call wrote the reply", () => {
+  assert.equal(stepSentence({ tool_calls: [] }), "Wrote the reply.");
+  assert.equal(stepSentence({}), "Wrote the reply.");
+});
+
+test("known tool results get their own sentence", () => {
+  const step = (name, result) => ({ tool_calls: [{ name, result }] });
+  assert.equal(
+    stepSentence(step("get_order_status", "no_matching_order")),
+    "Looked up the order but found no match, so it asked the customer to double-check.",
+  );
+  assert.match(stepSentence(step("request_refund", "ok")), /human for approval/);
+  assert.match(stepSentence(step("request_refund", "outside_window")), /more than 30 days/);
+  assert.match(stepSentence(step("capture_lead", "invalid_arguments")), /capture_lead .*failed validation/);
+});
+
+test("several calls in one step become one line", () => {
+  const line = stepSentence({
+    tool_calls: [
+      { name: "get_order_status", result: "ok" },
+      { name: "request_refund", result: "not_delivered" },
+    ],
+  });
+  assert.equal(line, "Looked up the order and found it. Tried to request a refund, but the order has not been delivered yet.");
+});
+
+test("unknown tools and codes fall back to a generic sentence", () => {
+  assert.equal(stepSentence({ tool_calls: [{ name: "new_tool", result: "ok" }] }), "Called new_tool.");
+  assert.equal(
+    stepSentence({ tool_calls: [{ name: "get_order_status", result: "brand_new_code" }] }),
+    'Called get_order_status, which returned "brand new code".',
+  );
+  assert.equal(stepSentence({ tool_calls: [{}] }), 'Called an unnamed tool, which returned "unknown".');
+});
+
+test("every tool and result code in app/tools has its own sentence", () => {
+  const dispatcher = readTool("dispatcher.py");
+  const tools = [...dispatcher.matchAll(/"([a-z_]+)": handlers\./g)].map((m) => m[1]);
+  assert.deepEqual(tools.sort(), Object.keys(TOOL_SENTENCES).sort());
+
+  const generic = [...dispatcher.matchAll(/_error\("([a-z_]+)"/g)].map((m) => m[1]);
+  const refundCodes = [...readTool("refund_rules.py").matchAll(/return "([a-z_]+)"/g)].map((m) => m[1]);
+  const lookupCodes = [...readTool("handlers.py").matchAll(/ToolError\("([a-z_]+)"\)/g)].map((m) => m[1]);
+  assert.ok(generic.length >= 4 && refundCodes.length >= 4 && lookupCodes.length >= 1);
+
+  const genericFallback = (tool, code) => `Called ${tool}, which returned "${codeWords(code)}".`;
+  for (const tool of tools) {
+    for (const code of ["ok", ...generic]) {
+      const line = stepSentence({ tool_calls: [{ name: tool, result: code }] });
+      assert.notEqual(line, genericFallback(tool, code), `${tool} ${code}`);
+      assert.notEqual(line, `Called ${tool}.`, `${tool} ${code}`);
+    }
+  }
+  for (const code of [...lookupCodes, ...refundCodes]) {
+    const line = stepSentence({ tool_calls: [{ name: "request_refund", result: code }] });
+    assert.notEqual(line, genericFallback("request_refund", code), code);
+  }
+  for (const code of lookupCodes) {
+    const line = stepSentence({ tool_calls: [{ name: "get_order_status", result: code }] });
+    assert.notEqual(line, genericFallback("get_order_status", code), code);
+  }
 });

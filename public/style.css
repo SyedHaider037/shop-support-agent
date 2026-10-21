@@ -661,6 +661,11 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+.step__summary {
+  margin: 0;
+  text-wrap: pretty;
+}
+
 .tool {
   margin: 6px 0 0;
   padding: 6px 8px;

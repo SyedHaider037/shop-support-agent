@@ -13,8 +13,6 @@ The shop, its products, orders and customers are all fake sample data. The demo 
 
 ![Chat page on a desktop: the conversation on the left, the trace panel with tool calls and guardrail checks on the right](docs/screenshots/chat-desktop.png)
 
-<img src="docs/screenshots/chat-mobile.png" alt="Chat page on a phone: the conversation with the trace below it" width="320">
-
 ## What it is and why
 
 The agent answers questions about products, orders and refunds for a sample shop called Example Goods. It uses four tools, and its policy forbids stating a product, price or order fact that no tool returned.

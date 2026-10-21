@@ -4,7 +4,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { isNearEnd, traceChecks } = require("../../public/app.js");
+const { isNearEnd, traceChecks, codeWords, riskPill, resultPill } = require("../../public/app.js");
 
 test("a reader at the end of the list is following along", () => {
   assert.equal(isNearEnd(1000, 600, 400), true);
@@ -45,4 +45,19 @@ test("when every check has something, there is no summary line", () => {
   assert.equal(checks.line, null);
   assert.equal(checks.error, "input_refused");
   assert.deepEqual(checks.retries, ["rate_limited, waited 2 s"]);
+});
+
+test("result codes read as plain words", () => {
+  assert.equal(codeWords("no_matching_order"), "no matching order");
+  assert.equal(codeWords("NOT_DELIVERED"), "not delivered");
+  assert.equal(codeWords(""), "unknown");
+  assert.equal(codeWords(undefined), "unknown");
+});
+
+test("pills carry their meaning in words", () => {
+  assert.deepEqual(riskPill("high"), { text: "Risk: high", tone: "high" });
+  assert.deepEqual(riskPill("low"), { text: "Risk: low", tone: "low" });
+  assert.deepEqual(riskPill("surprise"), { text: "Risk: unknown", tone: "unknown" });
+  assert.deepEqual(resultPill("ok"), { text: "Result: ok", tone: "ok" });
+  assert.deepEqual(resultPill("no_matching_order"), { text: "Result: no matching order", tone: "error" });
 });

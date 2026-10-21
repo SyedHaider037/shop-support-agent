@@ -702,6 +702,16 @@ code {
   white-space: nowrap;
 }
 
+/* "Risk: high", "Result: no matching order": sentence case reads better than shouting. */
+.badge--label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.badge--unknown {
+  background: var(--muted);
+}
+
 .badge--low {
   background: var(--low);
 }

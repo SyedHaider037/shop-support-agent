@@ -447,6 +447,27 @@ function traceChecks(trace) {
   };
 }
 
+/** A result or error code in plain words: "no_matching_order" -> "no matching order". */
+function codeWords(code) {
+  if (code === undefined || code === null || code === "") return "unknown";
+  return String(code).replace(/[_-]+/g, " ").trim().toLowerCase() || "unknown";
+}
+
+/** Labelled pills: the words carry the meaning, the colour is extra. */
+function riskPill(risk) {
+  const level = ["low", "medium", "high"].includes(risk) ? risk : "unknown";
+  return { text: `Risk: ${level}`, tone: level };
+}
+
+function resultPill(code) {
+  const ok = code === "ok";
+  return { text: `Result: ${ok ? "ok" : codeWords(code)}`, tone: ok ? "ok" : "error" };
+}
+
+function pill(info) {
+  return el("span", `badge badge--label badge--${info.tone}`, info.text);
+}
+
 function section(container, title) {
   const wrap = el("section", "trace__section");
   wrap.appendChild(el("h3", null, title));
@@ -484,10 +505,8 @@ function renderToolCall(call) {
   const box = el("div", "tool");
   const head = el("div", "tool__head");
   head.appendChild(el("strong", null, call.name));
-  const risk = ["low", "medium", "high"].includes(call.risk) ? call.risk : "unknown";
-  head.appendChild(el("span", `badge badge--${risk}`, `${risk} risk`));
-  const ok = call.result === "ok";
-  head.appendChild(el("span", `badge ${ok ? "badge--ok" : "badge--error"}`, ok ? "ok" : call.result));
+  head.appendChild(pill(riskPill(call.risk)));
+  head.appendChild(pill(resultPill(call.result)));
   head.appendChild(el("span", "hint", `${call.latency_ms ?? "?"} ms`));
   box.appendChild(head);
 
@@ -551,7 +570,11 @@ function renderTrace(container, reply) {
   const checks = traceChecks(trace);
   if (checks.guardrails.length) section(container, "Guardrails").appendChild(plainList(checks.guardrails));
   if (checks.retries.length) section(container, "Retries and waits").appendChild(plainList(checks.retries));
-  if (checks.error) section(container, "Error code").appendChild(el("p", "badge badge--error", checks.error));
+  if (checks.error) {
+    section(container, "Error code").appendChild(
+      el("p", "badge badge--label badge--error", `Error: ${codeWords(checks.error)}`),
+    );
+  }
   if (checks.line) container.appendChild(el("p", "trace__checks", checks.line));
 }
 
@@ -562,5 +585,16 @@ if (typeof document !== "undefined") {
   else startPage();
 }
 
-// Lets `node --test` check the pure formatter without a browser; ignored by the page.
-if (typeof module !== "undefined") module.exports = { parseInline, parseReply, pendingApproval, isNearEnd, traceChecks };
+// Lets `node --test` check the pure helpers without a browser; ignored by the page.
+if (typeof module !== "undefined") {
+  module.exports = {
+    parseInline,
+    parseReply,
+    pendingApproval,
+    isNearEnd,
+    traceChecks,
+    codeWords,
+    riskPill,
+    resultPill,
+  };
+}

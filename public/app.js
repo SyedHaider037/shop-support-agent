@@ -115,6 +115,11 @@ function pendingApproval(steps) {
   );
 }
 
+/** True when a scroll box is within `slack` px of its end: the reader is following along. */
+function isNearEnd(scrollHeight, scrollTop, clientHeight, slack = 48) {
+  return scrollHeight - (scrollTop + clientHeight) <= slack;
+}
+
 /* ---------- page ----------------------------------------------------------------- */
 
 function startPage() {
@@ -147,8 +152,29 @@ function startPage() {
     ui.traceDetails.open = false;
   }
 
-  function scrollToEnd() {
-    ui.messages.scrollTop = ui.messages.scrollHeight;
+  // From 900 px the list scrolls on its own; on a phone the page is the only scroller.
+  const listScrolls = () => getComputedStyle(ui.messages).overflowY !== "visible";
+
+  /** Is the reader at the newest message, or did they scroll up to read older ones? */
+  function isFollowing() {
+    if (listScrolls()) {
+      return isNearEnd(ui.messages.scrollHeight, ui.messages.scrollTop, ui.messages.clientHeight);
+    }
+    // On a phone: is the latest message (usually the reader's own) still on screen?
+    const last = ui.messages.lastElementChild;
+    if (!last) return true;
+    const box = last.getBoundingClientRect();
+    return box.top < window.innerHeight && box.bottom > 0;
+  }
+
+  /**
+   * Show a new message. Measure `follow` before adding it: a reader who scrolled up keeps
+   * their place. The jump is instant (no smooth scroll), so it is the same with reduced motion.
+   */
+  function reveal(node, follow) {
+    if (!follow) return;
+    if (listScrolls()) ui.messages.scrollTop = ui.messages.scrollHeight;
+    node.scrollIntoView({ block: "nearest" });
   }
 
   function updateCounter() {
@@ -167,16 +193,17 @@ function startPage() {
   }
 
   function addNotice(text) {
+    const follow = isFollowing();
     const li = el("li", "msg msg--notice", text);
     ui.messages.appendChild(li);
-    scrollToEnd();
+    reveal(li, follow);
     return li;
   }
 
   function addUserMessage(text) {
     const li = el("li", "msg msg--user", text); // textContent: user text is never HTML
     ui.messages.appendChild(li);
-    scrollToEnd();
+    reveal(li, true); // the reader just sent it
     return li;
   }
 
@@ -212,6 +239,7 @@ function startPage() {
   /* --- replies and their traces --- */
 
   function addAssistantReply(data) {
+    const follow = isFollowing();
     const index = state.replies.length;
     const li = el("li", "msg msg--assistant is-clickable");
     li.tabIndex = 0;
@@ -245,7 +273,7 @@ function startPage() {
     ui.messages.appendChild(li);
     state.replies.push({ node: li, trace: data.trace || {}, steps: data.steps || [], events });
     selectReply(index);
-    scrollToEnd();
+    reveal(li, follow);
   }
 
   function selectReply(index) {
@@ -540,4 +568,4 @@ if (typeof document !== "undefined") {
 }
 
 // Lets `node --test` check the pure formatter without a browser; ignored by the page.
-if (typeof module !== "undefined") module.exports = { parseInline, parseReply, pendingApproval };
+if (typeof module !== "undefined") module.exports = { parseInline, parseReply, pendingApproval, isNearEnd };

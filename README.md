@@ -11,7 +11,7 @@ The shop, its products, orders and customers are all fake sample data. The demo 
 
 ## Screenshots
 
-![Chat page on a desktop: the conversation on the left, the trace panel with tool calls and guardrail checks on the right](docs/screenshots/chat-desktop.png)
+![Chat page on a desktop: the conversation on the left, the trace panel with tool calls and guardrail checks on the right](docs/screenshots/shop-support-agent-screenshot.jpg)
 
 ## What it is and why
 

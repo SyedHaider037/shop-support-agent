@@ -900,6 +900,65 @@ code {
       0 0 0 1px rgba(0, 217, 255, 0.08),
       0 0 24px var(--glow);
   }
+
+  .msg__role {
+    color: var(--role); /* the user's own label stays white (.msg--user .msg__role) */
+  }
+
+  .msg--assistant.is-clickable:focus-visible {
+    border-color: var(--control-border);
+  }
+
+  .msg--assistant.is-selected {
+    box-shadow: 0 0 14px var(--glow);
+  }
+
+  .typing__dot {
+    background: var(--accent);
+  }
+
+  /* The focus ring stays the amber outline from :focus-visible; the glow only adds to it. */
+  .composer textarea {
+    background: var(--field-bg);
+    border-color: var(--control-border);
+  }
+
+  .composer textarea::placeholder {
+    color: var(--placeholder);
+  }
+
+  .composer textarea:focus {
+    box-shadow: 0 0 12px var(--glow);
+  }
+
+  /* Controls keep a 3:1 edge; the quieter --border is only for dividers. */
+  .button--secondary,
+  .chip,
+  .order-pick {
+    border-color: var(--control-border);
+  }
+
+  .order-pick {
+    background: var(--surface-2);
+  }
+}
+
+@media (prefers-color-scheme: dark) and (hover: hover) and (pointer: fine) {
+  .msg--assistant.is-clickable:hover {
+    border-color: var(--control-border);
+  }
+
+  .button--primary:not(:disabled):hover,
+  .chip:hover,
+  .order-pick:hover {
+    box-shadow: 0 0 10px var(--glow);
+  }
+
+  .button--secondary:not(:disabled):hover,
+  .chip:hover,
+  .order-pick:hover {
+    border-color: var(--accent);
+  }
 }
 
 /* Reduced motion turns every transition and press scale off. It sits last so it

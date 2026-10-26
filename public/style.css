@@ -861,6 +861,47 @@ code {
   font-size: var(--text-sm);
 }
 
+/* --- dark scheme: navy and cyan ---------------------------------------------- */
+
+/* Glow is quiet: it sits behind and around the panels, never over text. Cyan marks what
+   is interactive or selected; amber, red, green and lavender keep their own meanings. */
+@media (prefers-color-scheme: dark) {
+  /* A soft cyan glow behind the panels and a darker vignette toward the corners. On html
+     only, with body transparent, so the glow is not painted twice. */
+  html {
+    background:
+      radial-gradient(ellipse 70% 55% at 50% 45%, rgba(0, 217, 255, 0.1), transparent 70%),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.45) 100%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+
+  body {
+    background: transparent;
+  }
+
+  a {
+    color: var(--link);
+  }
+
+  .banner {
+    border-bottom: 1px solid var(--border-glow);
+    box-shadow: 0 1px 12px var(--glow);
+  }
+
+  .tagline {
+    color: var(--tagline);
+  }
+
+  .chat,
+  .trace__details {
+    border-color: var(--border-glow);
+    box-shadow:
+      0 0 0 1px rgba(0, 217, 255, 0.08),
+      0 0 24px var(--glow);
+  }
+}
+
 /* Reduced motion turns every transition and press scale off. It sits last so it
    wins over each component's own transition rule. */
 @media (prefers-reduced-motion: reduce) {

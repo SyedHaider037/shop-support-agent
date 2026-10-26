@@ -38,20 +38,30 @@
   color-scheme: light;
 }
 
+/* Dark: deep navy with electric cyan for what is interactive or selected. The variables
+   below the palette exist only in this scheme; the light scheme does not use them. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1216;
-    --surface: #181c22;
-    --surface-2: #222831;
-    --text: #e8ebef;
-    --muted: #a3adb8;
-    --border: #343c47;
-    --accent: #6ea8ff;
-    --accent-text: #0b1220;
-    --accent-hover: #8fbcff;
-    --user-bg: #3b3f45;
+    --bg: #050d18;
+    --surface: #0a1626; /* chat and trace panels */
+    --surface-2: #13273f; /* assistant bubble, tool cards */
+    --text: #e8f4ff;
+    --muted: #8fb4d6;
+    --border: #1c3a57; /* quiet dividers inside panels */
+    --control-border: #3478a6; /* edges of controls: 3:1 on every surface */
+    --accent: #29b6ff; /* dark text on it: white would fail contrast */
+    --accent-text: #041018;
+    --accent-hover: #5fcbff;
+    --user-bg: #25364d;
     --user-text: #ffffff;
-    --banner-bg: #3a2f10;
+    --link: #4cc2ff;
+    --role: #8fd4ff; /* "Assistant" labels and trace fact names */
+    --tagline: #b9dcf5;
+    --field-bg: #07111f;
+    --placeholder: #7fa3c4;
+    --glow: rgba(0, 217, 255, 0.35); /* soft outer glow, never over text */
+    --border-glow: rgba(0, 217, 255, 0.55); /* panel outline */
+    --banner-bg: #2a2208;
     --banner-text: #ffe3a1;
     --status-bg: #3a2f10;
     --status-text: #ffe3a1;

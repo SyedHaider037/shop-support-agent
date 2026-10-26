@@ -941,6 +941,20 @@ code {
   .order-pick {
     background: var(--surface-2);
   }
+
+  .trace__details > summary::after,
+  .glossary > summary {
+    color: var(--link);
+  }
+
+  .facts dt {
+    color: var(--role);
+  }
+
+  /* Steps keep the panel colour and a quiet border, so the tool card inside still stands out. */
+  .step__fill {
+    background: linear-gradient(90deg, #1e90d6, #5fd4ff);
+  }
 }
 
 @media (prefers-color-scheme: dark) and (hover: hover) and (pointer: fine) {

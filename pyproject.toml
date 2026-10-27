@@ -7,7 +7,7 @@ version = "0.1.0"
 description = "A customer support agent for a small online shop: FastAPI, Groq tool calling and guardrails."
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.152.0",
+    "fastapi==0.162.0",
     "uvicorn[standard]==0.54.0",
     "groq==1.7.0",
     "pydantic==2.14.1",
